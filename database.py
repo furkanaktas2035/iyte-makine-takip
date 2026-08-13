@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_NAME = "iyte_academic_v4.db"
+DB_NAME = "iyte_academic_v7.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME, check_same_thread=False)
@@ -9,25 +9,26 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 1. Profil Tablosu
+    # 1. Profil Tablosu (Ad, Bölüm, Sınıf, AGNO ve Tamamlanan Kredi)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS profile (
             id INTEGER PRIMARY KEY DEFAULT 1,
             name TEXT,
             department TEXT,
             grade TEXT,
-            current_gpa REAL
+            current_gpa REAL,
+            current_credits INTEGER
         )
     ''')
     
-    cursor.execute("SELECT COUNT(*) FROM profile")
+    cursor.execute("SELECT COUNT(*) FROM profile WHERE id = 1")
     if cursor.fetchone()[0] == 0:
         cursor.execute('''
-            INSERT INTO profile (id, name, department, grade, current_gpa)
-            VALUES (1, 'Furkan Aktaş', 'Makine Mühendisliği', '3. Sınıf', 3.81)
+            INSERT INTO profile (id, name, department, grade, current_gpa, current_credits)
+            VALUES (1, 'İYTE Öğrenci Paneli', 'Makine Mühendisliği', '3. Sınıf', 3.00, 60)
         ''')
     
-    # 2. Dersler Tablosu (AKTS & Kredi)
+    # 2. Dersler Tablosu (Varsayılan hiçbir ders eklenmez)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS courses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,4 +72,4 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
-    print("V4 Master Veri tabanı başarıyla oluşturuldu!")
+    print("V7 Veri tabanı başarıyla başlatıldı!")

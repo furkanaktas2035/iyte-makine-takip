@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import time
 
 # -----------------------------------------------------------------------------
-# 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU PREMIUM CSS
+# 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="İYTE Makine | Akademik Yönetim Platformu",
@@ -195,7 +195,7 @@ def generate_html_report(profile_data, df_courses_summary, df_exams_summary, df_
         <div class="profile-info">
             <strong>Öğrenci / Kullanıcı:</strong> {profile_data['name']}<br>
             <strong>Bölüm / Akademik Düzey:</strong> {profile_data['department']} - {profile_data['grade']}<br>
-            <strong>Birikimli AGNO (CGPA):</strong> {profile_data['current_gpa']} / 4.00
+            <strong>Girdiği Birikimli AGNO (CGPA):</strong> {profile_data['current_gpa']} / 4.00 (Tamamlanan Kredi: {profile_data['current_credits']})
         </div>
 
         <div class="section-title">1. Aktif Dönem Ders Listesi ve Kredi Yükü</div>
@@ -223,19 +223,24 @@ def generate_html_report(profile_data, df_courses_summary, df_exams_summary, df_
     """
     return html_content
 
-# Profil Verisi
+# Profil Verisi (Veri tabanında Saklanan Kullanıcı Bilgisi)
 cursor = conn.cursor()
-cursor.execute("SELECT name, department, grade, current_gpa FROM profile WHERE id = 1")
+cursor.execute("SELECT name, department, grade, current_gpa, current_credits FROM profile WHERE id = 1")
 prof_row = cursor.fetchone()
-if not prof_row or prof_row[0] in ["Furkan Aktaş", "İYTE Öğrenci Paneli"]:
-    cursor.execute("UPDATE profile SET name='İYTE Öğrenci Paneli', department='Makine Mühendisliği', grade='3. Sınıf', current_gpa=3.00 WHERE id=1")
-    conn.commit()
-    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "3. Sınıf", "current_gpa": 3.00}
+
+if prof_row:
+    profile = {
+        "name": prof_row[0],
+        "department": prof_row[1],
+        "grade": prof_row[2],
+        "current_gpa": prof_row[3] if prof_row[3] is not None else 3.00,
+        "current_credits": prof_row[4] if prof_row[4] is not None else 60
+    }
 else:
-    profile = {"name": prof_row[0], "department": prof_row[1], "grade": prof_row[2], "current_gpa": prof_row[3]}
+    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "3. Sınıf", "current_gpa": 3.00, "current_credits": 60}
 
 # -----------------------------------------------------------------------------
-# 3. YAN MENÜ
+# 3. YAN MENÜ & BİLGİLERİN SAKLANMASI
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(f"""
@@ -246,14 +251,21 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    with st.expander("👤 Kullanıcı Profil Bilgileri"):
+    with st.expander("👤 Kullanıcı Profil Bilgilerini Değiştir"):
         u_name = st.text_input("Ad Soyad / Kullanıcı Adı", value=profile['name'])
         u_dept = st.text_input("Bölüm", value=profile['department'])
         u_grade = st.selectbox("Sınıf", ["1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf", "Lisans"], index=2)
-        u_gpa = st.number_input("Mevcut AGNO", min_value=0.0, max_value=4.0, value=float(profile['current_gpa']), step=0.01)
-        if st.button("Profil Bilgilerini Kaydet"):
-            cursor.execute("UPDATE profile SET name=?, department=?, grade=?, current_gpa=? WHERE id=1", (u_name, u_dept, u_grade, u_gpa))
+        u_gpa = st.number_input("Geçmiş AGNO (CGPA)", min_value=0.0, max_value=4.0, value=float(profile['current_gpa']), step=0.01)
+        u_credits = st.number_input("Geçmiş Tamamlanan Kredi", min_value=0, max_value=250, value=int(profile['current_credits']), step=1)
+        
+        if st.button("💾 Bilgilerimi Kalıcı Kaydet"):
+            cursor.execute('''
+                UPDATE profile 
+                SET name=?, department=?, grade=?, current_gpa=?, current_credits=? 
+                WHERE id=1
+            ''', (u_name, u_dept, u_grade, u_gpa, u_credits))
             conn.commit()
+            st.success("Bilgileriniz kaydedildi! Kapatıp açsanız da saklanacaktır.")
             st.rerun()
 
     st.divider()
@@ -269,7 +281,7 @@ with st.sidebar:
         "⚙️ Ders & Müfredat Yönetimi"
     ])
 
-# Akıllı Uyarı Engine (Yaklaşan İlk Sınav)
+# Akıllı Uyarı Engine
 df_alert = pd.read_sql_query('''
     SELECT c.code, e.title, e.event_date 
     FROM exams e JOIN courses c ON e.course_id = c.id 
@@ -287,20 +299,65 @@ if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "�
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 4. MODÜLLER
+# 4. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU
+# -----------------------------------------------------------------------------
+def calculate_combined_gpa():
+    courses_df = pd.read_sql_query("SELECT id, credit FROM courses", conn)
+    
+    if courses_df.empty:
+        return 0.0, profile['current_gpa'], 0
+        
+    term_credits = 0
+    term_weighted_points = 0
+    
+    for _, c_row in courses_df.iterrows():
+        c_credit = c_row['credit']
+        exams_df = pd.read_sql_query("SELECT weight, score FROM exams WHERE course_id = ? AND score IS NOT NULL", conn, params=(c_row['id'],))
+        
+        if not exams_df.empty:
+            tot_w = exams_df['weight'].sum()
+            if tot_w > 0:
+                w_sum = (exams_df['score'] * exams_df['weight']).sum()
+                course_avg = w_sum / tot_w
+                # İYTE Harf Notu Karşılığı Katsayısı
+                if course_avg >= 90: letter_coeff = 4.0
+                elif course_avg >= 85: letter_coeff = 3.5
+                elif course_avg >= 80: letter_coeff = 3.0
+                elif course_avg >= 75: letter_coeff = 2.5
+                elif course_avg >= 70: letter_coeff = 2.0
+                elif course_avg >= 65: letter_coeff = 1.5
+                elif course_avg >= 60: letter_coeff = 1.0
+                else: letter_coeff = 0.0
+                
+                term_credits += c_credit
+                term_weighted_points += c_credit * letter_coeff
+
+    term_gpa = (term_weighted_points / term_credits) if term_credits > 0 else 0.0
+    
+    # Eski Kalite Puanı + Yeni Dönem Kalite Puanı
+    prev_points = profile['current_gpa'] * profile['current_credits']
+    tot_accumulated_credits = profile['current_credits'] + term_credits
+    tot_accumulated_points = prev_points + term_weighted_points
+    
+    new_combined_cgpa = (tot_accumulated_points / tot_accumulated_credits) if tot_accumulated_credits > 0 else profile['current_gpa']
+    
+    return term_gpa, new_combined_cgpa, term_credits
+
+# -----------------------------------------------------------------------------
+# 5. MODÜLLER
 # -----------------------------------------------------------------------------
 
 # --- MODÜL 1: DÖNEM & SINAV NOT TAKİBİ ---
 if menu == "📈 Dönem & Sınav Not Takibi":
     st.markdown("<h1 class='custom-header'>Akademik Performans & Not Takibi</h1>", unsafe_allow_html=True)
     
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Genel AGNO", f"{profile['current_gpa']:.2f} / 4.00")
+    term_gpa, combined_cgpa, term_credits = calculate_combined_gpa()
     
-    tot_credits = pd.read_sql_query("SELECT SUM(credit) FROM courses", conn).iloc[0,0] or 0
-    tot_ects = pd.read_sql_query("SELECT SUM(ects) FROM courses", conn).iloc[0,0] or 0
-    c2.metric("Aktif Dönem Kredisi", f"{tot_credits} Kredi")
-    c3.metric("Aktif Dönem AKTS", f"{tot_ects} AKTS")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Geçmiş Birikimli AGNO", f"{profile['current_gpa']:.2f}")
+    c2.metric("Güncel Dönem Ortalaması (GPA)", f"{term_gpa:.2f}")
+    c3.metric("YENİ TOPLAM BİRİKİMLİ AGNO", f"{combined_cgpa:.2f}", delta=f"{combined_cgpa - profile['current_gpa']:+.2f}")
+    c4.metric("Aktif Dönem Kredisi", f"{term_credits} Kredi")
 
     st.divider()
     courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses", conn)
@@ -379,19 +436,18 @@ elif menu == "🎯 Gerekli Final Notu Hesaplayıcı":
                             target_letter = st.selectbox("Hedeflediğiniz Harf Notunu Seçin", list(HARF_ALT_SINIR.keys()), index=4, key=f"target_l_{c_row['id']}")
                             target_min_score = HARF_ALT_SINIR[target_letter]
                             
-                            # Gerekli Final Notu Formülü: (HedefToplam - MevcutAğırlıklıToplam) / KalanAğırlık
                             needed_final = (target_min_score * 100 - current_weighted_sum) / rem_weight
                             
                             if needed_final <= 0:
-                                st.success(f"🎉 Tebrikler! Zaten vize notlarınızla **{target_letter}** harf notunu garantilediniz (Finalden 0 bile alsanız yeterli).")
+                                st.success(f"🎉 Tebrikler! Zaten vize notlarınızla **{target_letter}** harf notunu garantilediniz.")
                             elif needed_final > 100:
-                                st.error(f"⚠️ Maalesef! Finalden 100 dahi alsanız bu dersten **{target_letter}** almak matematiksel olarak mümkün değil (Max alabileceğiniz not sınırı aşılıyor).")
+                                st.error(f"⚠️ Finalden 100 bile alsanız bu dersten **{target_letter}** almak matematiksel olarak mümkün değil.")
                             else:
                                 st.info(f"💡 **{target_letter}** alabilmek için Final sınavından minimum **{needed_final:.1f}** almanız gerekiyor.")
                         else:
                             st.write("Bu dersin tüm %100 değerlendirmeleri tamamlanmış.")
                     else:
-                        st.warning("Girilmiş vize/quiz notu yok. Sınav notlarınızı girdikten sonra hesaplanacaktır.")
+                        st.warning("Girilmiş vize/quiz notu yok.")
                 else:
                     st.info("Sınav eklenmemiş.")
     else:
@@ -404,7 +460,7 @@ elif menu == "🎯 Dinamik AGNO / GANO Simülatörü":
     
     col_prev1, col_prev2, col_prev3 = st.columns(3)
     prev_gpa = col_prev1.number_input("Geçmiş Birikimli AGNO (CGPA)", min_value=0.0, max_value=4.0, value=float(profile['current_gpa']), step=0.01)
-    prev_credits = col_prev2.number_input("Tamamlanan Toplam Kredi", min_value=0, max_value=200, value=60, step=1)
+    prev_credits = col_prev2.number_input("Tamamlanan Toplam Kredi", min_value=0, max_value=200, value=int(profile['current_credits']), step=1)
     
     prev_points = prev_gpa * prev_credits
     col_prev3.metric("Önceki Toplam Kalite Puanı", f"{prev_points:.1f} Puan")
@@ -487,7 +543,7 @@ elif menu == "⏱️ Pomodoro Çalışma Sayacı":
                 
             if st.session_state['pomo_seconds'] == 0:
                 st.balloons()
-                st.success("🎉 Harika! Çalışma seansı tamamlandı. Şimdi 5 dakika mola verebilirsin!")
+                st.success("🎉 Harika! Çalışma seansı tamamlandı. Şimdi mola verebilirsin!")
                 st.session_state['pomo_run'] = False
         else:
             st.markdown("""
