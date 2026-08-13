@@ -9,7 +9,7 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 1. Profil Tablosu (Ad, Bölüm, Sınıf, AGNO ve Tamamlanan Kredi)
+    # 1. Profil Tablosu
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS profile (
             id INTEGER PRIMARY KEY DEFAULT 1,
@@ -17,9 +17,15 @@ def init_db():
             department TEXT,
             grade TEXT,
             current_gpa REAL,
-            current_credits INTEGER
+            current_credits INTEGER DEFAULT 60
         )
     ''')
+    
+    # Eksik sütun kontrolü (Sütun yoksa otomatik ekler)
+    cursor.execute("PRAGMA table_info(profile)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'current_credits' not in columns:
+        cursor.execute("ALTER TABLE profile ADD COLUMN current_credits INTEGER DEFAULT 60")
     
     cursor.execute("SELECT COUNT(*) FROM profile WHERE id = 1")
     if cursor.fetchone()[0] == 0:
@@ -28,7 +34,7 @@ def init_db():
             VALUES (1, 'İYTE Öğrenci Paneli', 'Makine Mühendisliği', '3. Sınıf', 3.00, 60)
         ''')
     
-    # 2. Dersler Tablosu (Varsayılan hiçbir ders eklenmez)
+    # 2. Dersler Tablosu
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS courses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,4 +78,4 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
-    print("V7 Veri tabanı başarıyla başlatıldı!")
+    print("V7 Veri tabanı başarıyla güncellendi!")
