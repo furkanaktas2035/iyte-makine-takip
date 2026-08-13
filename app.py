@@ -297,7 +297,7 @@ if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "�
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU (TEK VİZE DAHİL BİLE CANLI DİNAMİK)
+# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU (HASSAS REVİZE)
 # -----------------------------------------------------------------------------
 def calculate_combined_gpa():
     courses_df = pd.read_sql_query("SELECT id, credit, ects FROM courses WHERE user_id = ?", conn, params=(user_id,))
@@ -313,9 +313,10 @@ def calculate_combined_gpa():
     
     for _, c_row in courses_df.iterrows():
         c_credit = c_row['credit']
-        # En az bir notu girilmiş (score IS NOT NULL) sınavları çekiyoruz
+        
+        # Sadece notu gerçekten kaydedilmiş ve 0'dan büyük sınavları çek
         exams_df = pd.read_sql_query(
-            "SELECT weight, score FROM exams WHERE course_id = ? AND user_id = ? AND score IS NOT NULL", 
+            "SELECT weight, score FROM exams WHERE course_id = ? AND user_id = ? AND score IS NOT NULL AND score > 0", 
             conn, params=(c_row['id'], user_id)
         )
         
@@ -323,9 +324,9 @@ def calculate_combined_gpa():
             tot_w = exams_df['weight'].sum()
             if tot_w > 0:
                 w_sum = (exams_df['score'] * exams_df['weight']).sum()
-                course_avg = w_sum / tot_w # O ana kadar girilmiş vizelerin kendi içindeki ağırlıklı ortalaması
+                course_avg = w_sum / tot_w # Girilen vizelerin ağırlıklı ortalaması
                 
-                # İYTE Harf Notu Karşılığı
+                # İYTE Harf Notu Katsayı Karşılığı
                 if course_avg >= 90: letter_coeff = 4.0
                 elif course_avg >= 85: letter_coeff = 3.5
                 elif course_avg >= 80: letter_coeff = 3.0
@@ -407,7 +408,7 @@ if menu == "📈 Dönem & Sınav Not Takibi":
                         
                 with col_e2:
                     if not exams_df.empty:
-                        completed = exams_df[exams_df['score'].notnull()]
+                        completed = exams_df[(exams_df['score'].notnull()) & (exams_df['score'] > 0)]
                         if not completed.empty:
                             tot_w = completed['weight'].sum()
                             w_sum = (completed['score'] * completed['weight']).sum()
@@ -570,7 +571,7 @@ elif menu == "📊 Aylık Başarı Trendi":
     query_monthly = '''
         SELECT strftime('%Y-%m', event_date) AS Ay, AVG(score) AS Ortalama, COUNT(score) AS SinavSayisi
         FROM exams
-        WHERE user_id = ? AND score IS NOT NULL
+        WHERE user_id = ? AND score IS NOT NULL AND score > 0
         GROUP BY Ay
         ORDER BY Ay ASC
     '''
