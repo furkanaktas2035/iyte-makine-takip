@@ -4,46 +4,69 @@ from datetime import datetime, date
 import database as db
 
 # -----------------------------------------------------------------------------
-# 1. SAYFA KONFİGÜRASYONU & TASARIM
+# 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU PREMIUM CSS (GLASSMORPHISM)
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="İYTE Makine | Pro Akademik Dashboard",
+    page_title="İYTE Makine | Akademik Yönetim Platformu",
     page_icon="⚙️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 CUSTOM_CSS = """
 <style>
+    /* Global Temel Stiller */
     .stApp {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        background: linear-gradient(135deg, #090d16 0%, #111827 50%, #0f172a 100%);
         color: #f8fafc;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
+    
+    /* Mobil Uyumlu Metrik Kartları */
     div[data-testid="stMetric"] {
-        background: rgba(30, 41, 59, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 16px;
-        padding: 18px;
-        box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        padding: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(12px);
+        margin-bottom: 10px;
     }
+    
+    /* Yan Menü Profil Kartı */
     .profile-card {
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
-        border: 1px solid #6366f1;
-        border-radius: 18px;
-        padding: 20px;
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        border-radius: 16px;
+        padding: 18px;
         margin-bottom: 20px;
+        box-shadow: 0 8px 25px rgba(49, 46, 129, 0.3);
     }
+    
+    /* Gradient Başlıklar */
     .custom-header {
         font-weight: 800;
-        background: linear-gradient(90deg, #38bdf8, #818cf8);
+        letter-spacing: -0.5px;
+        background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        margin-bottom: 15px;
     }
+    
+    /* Mobil Ekran İyileştirmeleri (Responsive CSS) */
+    @media (max-width: 768px) {
+        .stApp { padding: 5px; }
+        div[data-testid="stMetric"] { padding: 12px; }
+        .custom-header { font-size: 24px !important; }
+        .stButton>button { width: 100%; border-radius: 10px; }
+    }
+    
+    /* Özel Durum Kartları */
     .trend-card-up {
-        background: rgba(16, 185, 129, 0.15);
-        border: 1px solid #10b981;
+        background: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.3);
         padding: 16px;
-        border-radius: 12px;
+        border-radius: 14px;
         margin-bottom: 15px;
     }
 </style>
@@ -55,7 +78,7 @@ db.init_db()
 conn = db.get_connection()
 
 # -----------------------------------------------------------------------------
-# 2. İYTE MAKİNE TÜM DERS HAVUZU (1. - 8. YARIYIL)
+# 2. İYTE MAKİNE DERS HAVUZU
 # -----------------------------------------------------------------------------
 IYTE_ALL_COURSES = [
     # 1. Yarıyıl
@@ -134,36 +157,41 @@ def calculate_iyte_letter(score):
     elif score >= 60: return "DD (1.0)"
     else: return "FF (0.0)"
 
-# Profil Verisi
+# Profil Verisi (Kişiselleştirilmiş İsim Yerine Genel Yapı)
 cursor = conn.cursor()
 cursor.execute("SELECT name, department, grade, current_gpa FROM profile WHERE id = 1")
 prof_row = cursor.fetchone()
-profile = {"name": prof_row[0], "department": prof_row[1], "grade": prof_row[2], "current_gpa": prof_row[3]}
+if not prof_row or prof_row[0] == "Furkan Aktaş":
+    cursor.execute("UPDATE profile SET name='İYTE Öğrenci Paneli', department='Makine Mühendisliği', grade='Lisans' WHERE id=1")
+    conn.commit()
+    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "Lisans", "current_gpa": 3.00}
+else:
+    profile = {"name": prof_row[0], "department": prof_row[1], "grade": prof_row[2], "current_gpa": prof_row[3]}
 
 # -----------------------------------------------------------------------------
-# 3. YAN MENÜ
+# 3. YAN MENÜ & PROFİL YAPILANDIRMASI
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(f"""
     <div class="profile-card">
-        <h3 style="margin:0; color:#f8fafc; font-size:19px;">🎓 {profile['name']}</h3>
-        <p style="margin:4px 0 0 0; color:#a5b4fc; font-size:13px;">İYTE - {profile['department']}</p>
-        <span style="background:#4f46e5; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">{profile['grade']}</span>
+        <h3 style="margin:0; color:#f8fafc; font-size:18px;">🎓 {profile['name']}</h3>
+        <p style="margin:4px 0 0 0; color:#a5b4fc; font-size:12px;">İYTE - {profile['department']}</p>
+        <span style="background:#4f46e5; color:white; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:bold;">{profile['grade']}</span>
     </div>
     """, unsafe_allow_html=True)
     
-    with st.expander("👤 Profili Düzenle"):
-        u_name = st.text_input("Ad Soyad", value=profile['name'])
+    with st.expander("👤 Kullanıcı Profil Bilgileri"):
+        u_name = st.text_input("Ad Soyad / Kullanıcı Adı", value=profile['name'])
         u_dept = st.text_input("Bölüm", value=profile['department'])
-        u_grade = st.selectbox("Sınıf", ["1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf"], index=2)
+        u_grade = st.selectbox("Sınıf", ["1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf", "Lisans"], index=2)
         u_gpa = st.number_input("Mevcut AGNO", min_value=0.0, max_value=4.0, value=profile['current_gpa'], step=0.01)
-        if st.button("Kaydet"):
+        if st.button("Profil Bilgilerini Kaydet"):
             cursor.execute("UPDATE profile SET name=?, department=?, grade=?, current_gpa=? WHERE id=1", (u_name, u_dept, u_grade, u_gpa))
             conn.commit()
             st.rerun()
 
     st.divider()
-    menu = st.radio("Menü", ["📈 Dönem & Sınav Not Takibi", "📊 Aylık Başarı Trendi", "📅 Sınav Takvimi & Geri Sayım", "📝 Ders Notları", "⚙️ Ders & Müfredat Yönetimi"])
+    menu = st.radio("Navigasyon", ["📈 Dönem & Sınav Not Takibi", "📊 Aylık Başarı Trendi", "📅 Sınav Takvimi & Geri Sayım", "📝 Ders Notları", "⚙️ Ders & Müfredat Yönetimi"])
 
 # -----------------------------------------------------------------------------
 # 4. MODÜLLER
@@ -171,15 +199,15 @@ with st.sidebar:
 
 # --- MODÜL 1: DÖNEM & SINAV NOT TAKİBİ ---
 if menu == "📈 Dönem & Sınav Not Takibi":
-    st.markdown("<h1 class='custom-header'>Ağırlıklı Not & Sınav Takibi</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='custom-header'>Akademik Performans & Not Takibi</h1>", unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
     c1.metric("Genel AGNO", f"{profile['current_gpa']:.2f} / 4.00")
     
     tot_credits = pd.read_sql_query("SELECT SUM(credit) FROM courses", conn).iloc[0,0] or 0
     tot_ects = pd.read_sql_query("SELECT SUM(ects) FROM courses", conn).iloc[0,0] or 0
-    c2.metric("Aktif Dönem Toplam Kredi", f"{tot_credits} Kredi")
-    c3.metric("Aktif Dönem Toplam AKTS", f"{tot_ects} AKTS")
+    c2.metric("Aktif Dönem Kredisi", f"{tot_credits} Kredi")
+    c3.metric("Aktif Dönem AKTS", f"{tot_ects} AKTS")
 
     st.divider()
     courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses", conn)
@@ -206,17 +234,16 @@ if menu == "📈 Dönem & Sınav Not Takibi":
                             if cc.button("Kaydet", key=f"btn_s_{ex['id']}"):
                                 cursor.execute("UPDATE exams SET score = ? WHERE id = ?", (new_s, ex['id']))
                                 conn.commit()
-                                st.success("Güncellendi!")
+                                st.success("Kaydedildi!")
                                 st.rerun()
                                 
-                            # Sınav Silme Butonu
                             if cd.button("🗑️ Sil", key=f"btn_del_ex_{ex['id']}"):
                                 cursor.execute("DELETE FROM exams WHERE id = ?", (ex['id'],))
                                 conn.commit()
-                                st.warning("Sınav silindi!")
+                                st.warning("Silindi!")
                                 st.rerun()
                     else:
-                        st.info("Sınav eklenmedi.")
+                        st.info("Bu ders için henüz sınav eklenmedi.")
                         
                 with col_e2:
                     if not exams_df.empty:
@@ -232,7 +259,7 @@ if menu == "📈 Dönem & Sınav Not Takibi":
                         else:
                             st.write("Girilmiş sınav notu yok.")
     else:
-        st.info("Henüz eklenmiş bir dersiniz yok. '⚙️ Ders & Müfredat Yönetimi' sekmesinden derslerinizi seçebilirsiniz.")
+        st.info("Henüz eklenmiş bir dersiniz yok. '⚙️ Ders & Müfredat Yönetimi' sekmesinden derslerinizi ekleyebilirsiniz.")
 
 # --- MODÜL 2: AYLIK BAŞARI TRENDİ ---
 elif menu == "📊 Aylık Başarı Trendi":
@@ -261,15 +288,15 @@ elif menu == "📊 Aylık Başarı Trendi":
                 st.markdown(f"""
                 <div class="trend-card-up">
                     <h4>🚀 Harika İlerleme!</h4>
-                    <p>Bu ayki ortalamanız (<b>{last_month:.2f}</b>), geçen aya (<b>{prev_month:.2f}</b>) göre <b>%{pct_change:.1f} daha yüksek!</b> Performans trendiniz yükselişte.</p>
+                    <p>Bu ayki ortalamanız (<b>{last_month:.2f}</b>), geçen aya (<b>{prev_month:.2f}</b>) göre <b>%{pct_change:.1f} daha yüksek!</b> Performansınız yükselişte.</p>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.warning(f"⚠️ Bu ayki ortalamanız geçen aya göre %{abs(pct_change):.1f} bir miktar düşüş gösterdi. Önümüzdeki sınavlar için biraz daha tempo artırılabilir.")
+                st.warning(f"⚠️ Bu ayki ortalamanız geçen aya göre %{abs(pct_change):.1f} bir miktar düşüş gösterdi.")
         else:
-            st.info(f"Geçerli ay ortalamanız: **{df_trend.iloc[0]['Ortalama']:.2f}**. Farklı aylara ait sınav notları girdikçe başarı eğriniz burada şekillenecektir.")
+            st.info(f"Geçerli ay ortalamanız: **{df_trend.iloc[0]['Ortalama']:.2f}**.")
     else:
-        st.info("Aylık başarı eğrisinin hesaplanması için 'Dönem & Sınav Not Takibi' sekmesinden sınav tarihlerini ve aldığınız notları girmelisiniz.")
+        st.info("Aylık başarı eğrisi için sınav tarihlerini ve aldığınız notları girmelisiniz.")
 
 # --- MODÜL 3: SINAV TAKVİMİ & GERİ SAYIM ---
 elif menu == "📅 Sınav Takvimi & Geri Sayım":
@@ -348,7 +375,7 @@ elif menu == "📝 Ders Notları":
 elif menu == "⚙️ Ders & Müfredat Yönetimi":
     st.markdown("<h1 class='custom-header'>Ders & Müfredat Yönetimi</h1>", unsafe_allow_html=True)
     
-    tab1, tab2, tab3 = st.tabs(["🔍 İYTE Ders Havuzundan Tek Tek Seç", "➕ Özel / Seçmeli Ders Ekle", "🗑️ Kayıtlı Dersleri Yönet & Sil"])
+    tab1, tab2, tab3 = st.tabs(["🔍 İYTE Ders Havuzundan Seç", "➕ Özel / Seçmeli Ders Ekle", "🗑️ Kayıtlı Dersleri Yönet & Sil"])
     
     with tab1:
         st.subheader("İYTE Makine Mühendisliği Ders Havuzu")
@@ -362,7 +389,7 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
         
         selected_to_add = []
         for item in filtered_courses:
-            chk = st.checkbox(f"**{item['code']}** - {item['name']} *({item['credit']} Kredi / {item['ects']} AKTS - {item['sem']}. Yarıyıl)*", key=f"chk_{item['code']}")
+            chk = st.checkbox(f"**{item['code']}** - {item['name']} *({item['credit']} Kredi / {item['ects']} AKTS)*", key=f"chk_{item['code']}")
             if chk:
                 selected_to_add.append(item)
                 
@@ -376,15 +403,15 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
                                        (c['code'], c['name'], c['credit'], c['ects'], c['sem']))
                         count += 1
                 conn.commit()
-                st.success(f"Seçtiğiniz {count} yeni ders başarıyla eklendi!")
+                st.success(f"{count} yeni ders eklendi!")
                 st.rerun()
             else:
-                st.warning("Lütfen eklemek istediğiniz en az bir dersi yukarıdaki kutucuklardan işaretleyin.")
+                st.warning("Lütfen eklemek istediğiniz dersleri işaretleyin.")
 
     with tab2:
         st.subheader("Manuel / Seçmeli Ders Ekleme")
         m_code = st.text_input("Ders Kodu", placeholder="Örn: ME 451")
-        m_name = st.text_input("Ders Adı", placeholder="Örn: Isıl Sistemler Tasarımı (Teknik Seçmeli)")
+        m_name = st.text_input("Ders Adı", placeholder="Örn: Isıl Sistemler Tasarımı")
         m_credit = st.number_input("Yerel Kredi", min_value=0, max_value=10, value=3)
         m_ects = st.number_input("AKTS Değeri", min_value=1, max_value=30, value=5)
         
@@ -404,8 +431,6 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
             for _, r in df_c.iterrows():
                 col_a, col_b = st.columns([4, 1])
                 col_a.write(f"📘 **{r['Kodu']}** - {r['Adı']} ({r['Kredi']} Kredi / {r['AKTS']} AKTS)")
-                
-                # DERS SİLME BUTONU
                 if col_b.button("🗑️ Dersi Sil", key=f"del_course_{r['id']}"):
                     cursor.execute("DELETE FROM courses WHERE id = ?", (r['id'],))
                     conn.commit()
