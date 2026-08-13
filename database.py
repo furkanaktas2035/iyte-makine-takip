@@ -9,11 +9,11 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # SQLite için foreign key desteğini aktifleştir
+    # SQLite foreign key kısıtlamalarını aktifleştir
     cursor.execute("PRAGMA foreign_keys = ON")
-
+    
     # -------------------------------------------------------------
-    # 1. PROFIL TABLOSU (Kullanıcı Bazlı)
+    # 1. PROFIL TABLOSU (Kullanıcı Bazlı Yalıtım)
     # -------------------------------------------------------------
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS profile (
@@ -25,9 +25,9 @@ def init_db():
             current_credits INTEGER DEFAULT 60
         )
     ''')
-
+    
     # -------------------------------------------------------------
-    # 2. DERSLER TABLOSU (Aktif Dönem Dersleri)
+    # 2. DERSLER TABLOSU
     # -------------------------------------------------------------
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS courses (
@@ -41,9 +41,9 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES profile(user_id) ON DELETE CASCADE
         )
     ''')
-
+    
     # -------------------------------------------------------------
-    # 3. SINAVLAR VE NOTLAR TABLOSU
+    # 3. SINAVLAR TABLOSU
     # -------------------------------------------------------------
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS exams (
@@ -58,7 +58,7 @@ def init_db():
             FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
         )
     ''')
-
+    
     # -------------------------------------------------------------
     # 4. DERS NOTLARI TABLOSU
     # -------------------------------------------------------------
@@ -74,9 +74,9 @@ def init_db():
             FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
         )
     ''')
-
+    
     # -------------------------------------------------------------
-    # 5. MIGRATION / SÜTUN KONTROLLERİ (Eski Veritabanları İçin)
+    # 5. MIGRATION (Eski Tablolarda user_id Yoksa Otomatik Ekler)
     # -------------------------------------------------------------
     tables_to_check = ['courses', 'exams', 'notes']
     for table in tables_to_check:
@@ -84,13 +84,12 @@ def init_db():
         cols = [c[1] for c in cursor.fetchall()]
         if 'user_id' not in cols:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT DEFAULT 'default_user'")
-
+            
     conn.commit()
     conn.close()
 
-
 # -------------------------------------------------------------
-# YARDIMCI FONKSİYONLAR (App.py Tarafından Çağrılacak)
+# APP.PY TARAFINDAN ÇAĞRILAN FONKSİYONLAR
 # -------------------------------------------------------------
 
 def get_or_create_profile(user_id):
@@ -106,6 +105,7 @@ def get_or_create_profile(user_id):
             VALUES (?, 'İYTE Öğrenci Paneli', 'Makine Mühendisliği', '3. Sınıf', 3.00, 60)
         ''', (user_id,))
         conn.commit()
+        conn.close()
         return ('İYTE Öğrenci Paneli', 'Makine Mühendisliği', '3. Sınıf', 3.00, 60)
     
     conn.close()
@@ -130,4 +130,5 @@ def update_profile(user_id, name, department, grade, current_gpa, current_credit
 
 if __name__ == "__main__":
     init_db()
-    print("V7 Veri tabanı başarıyla güncellendi ve kullanıcı izolasyonu sağlandı!")
+    print("V7 Veri tabanı başarıyla güncellendi ve tüm fonksiyonlar yüklendi!")
+    
