@@ -4,7 +4,7 @@ from datetime import datetime, date
 import database as db
 
 # -----------------------------------------------------------------------------
-# 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU PREMIUM CSS (GLASSMORPHISM)
+# 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU PREMIUM CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="İYTE Makine | Akademik Yönetim Platformu",
@@ -15,14 +15,11 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
-    /* Global Temel Stiller */
     .stApp {
         background: linear-gradient(135deg, #090d16 0%, #111827 50%, #0f172a 100%);
         color: #f8fafc;
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
-    
-    /* Mobil Uyumlu Metrik Kartları */
     div[data-testid="stMetric"] {
         background: rgba(30, 41, 59, 0.6);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -32,8 +29,6 @@ CUSTOM_CSS = """
         backdrop-filter: blur(12px);
         margin-bottom: 10px;
     }
-    
-    /* Yan Menü Profil Kartı */
     .profile-card {
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
         border: 1px solid rgba(99, 102, 241, 0.4);
@@ -42,8 +37,6 @@ CUSTOM_CSS = """
         margin-bottom: 20px;
         box-shadow: 0 8px 25px rgba(49, 46, 129, 0.3);
     }
-    
-    /* Gradient Başlıklar */
     .custom-header {
         font-weight: 800;
         letter-spacing: -0.5px;
@@ -52,16 +45,12 @@ CUSTOM_CSS = """
         -webkit-text-fill-color: transparent;
         margin-bottom: 15px;
     }
-    
-    /* Mobil Ekran İyileştirmeleri (Responsive CSS) */
     @media (max-width: 768px) {
         .stApp { padding: 5px; }
         div[data-testid="stMetric"] { padding: 12px; }
         .custom-header { font-size: 24px !important; }
         .stButton>button { width: 100%; border-radius: 10px; }
     }
-    
-    /* Özel Durum Kartları */
     .trend-card-up {
         background: rgba(16, 185, 129, 0.12);
         border: 1px solid rgba(16, 185, 129, 0.3);
@@ -78,8 +67,13 @@ db.init_db()
 conn = db.get_connection()
 
 # -----------------------------------------------------------------------------
-# 2. İYTE MAKİNE DERS HAVUZU
+# 2. İYTE HARF NOTLARI VE DERS HAVUZU
 # -----------------------------------------------------------------------------
+HARF_KATSAYI = {
+    "AA": 4.0, "BA": 3.5, "BB": 3.0, "CB": 2.5,
+    "CC": 2.0, "DC": 1.5, "DD": 1.0, "FF": 0.0
+}
+
 IYTE_ALL_COURSES = [
     # 1. Yarıyıl
     {"code": "CHEM121", "name": "GENEL KİMYA I", "credit": 3, "ects": 5, "sem": 1},
@@ -157,19 +151,77 @@ def calculate_iyte_letter(score):
     elif score >= 60: return "DD (1.0)"
     else: return "FF (0.0)"
 
-# Profil Verisi (Kişiselleştirilmiş İsim Yerine Genel Yapı)
+def generate_html_report(profile_data, df_courses_summary, df_exams_summary, df_notes_summary):
+    """Kusursuz Türkçe Karakter Destekli Rapor Belgesi"""
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8">
+        <title>İYTE Akademik Durum Raporu</title>
+        <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; color: #0f172a; background: #ffffff; }}
+            .header {{ border-bottom: 3px solid #2563eb; padding-bottom: 12px; margin-bottom: 20px; }}
+            .header h1 {{ margin: 0; color: #1e3a8a; font-size: 22px; text-transform: uppercase; }}
+            .profile-info {{ background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin-bottom: 25px; font-size: 14px; line-height: 1.6; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 25px; }}
+            th, td {{ border: 1px solid #cbd5e1; padding: 9px 12px; text-align: left; font-size: 13px; }}
+            th {{ background-color: #2563eb; color: #ffffff; font-weight: bold; }}
+            tr:nth-child(even) {{ background-color: #f1f5f9; }}
+            .section-title {{ color: #1e3a8a; font-size: 16px; border-left: 4px solid #2563eb; padding-left: 8px; margin-top: 25px; margin-bottom: 12px; font-weight: bold; }}
+            .note-box {{ background: #fefce8; border-left: 4px solid #eab308; padding: 10px 14px; margin-bottom: 10px; border-radius: 4px; font-size: 13px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>İZMİR YÜKSEK TEKNOLOJİ ENSTİTÜSÜ - AKADEMİK DURUM RAPORU</h1>
+            <p style="margin: 5px 0 0 0; color: #64748b; font-size: 12px;">Rapor Oluşturma Tarihi: {date.today().strftime('%d.%m.%Y')}</p>
+        </div>
+        
+        <div class="profile-info">
+            <strong>Öğrenci / Kullanıcı:</strong> {profile_data['name']}<br>
+            <strong>Bölüm / Akademik Düzey:</strong> {profile_data['department']} - {profile_data['grade']}<br>
+            <strong>Birikimli AGNO (CGPA):</strong> {profile_data['current_gpa']} / 4.00
+        </div>
+
+        <div class="section-title">1. Aktif Dönem Ders Listesi ve Kredi Yükü</div>
+        {df_courses_summary.to_html(index=False, escape=False) if not df_courses_summary.empty else '<p>Kayıtlı ders bulunmamaktadır.</p>'}
+
+        <div class="section-title">2. Değerlendirmeler & Sınav Not Transkripti</div>
+        {df_exams_summary.to_html(index=False, escape=False) if not df_exams_summary.empty else '<p>Sınav kaydı bulunmamaktadır.</p>'}
+
+        <div class="section-title">3. Önemli Ders Notları Defteri</div>
+    """
+    if not df_notes_summary.empty:
+        for _, n in df_notes_summary.head(10).iterrows():
+            html_content += f"""
+            <div class="note-box">
+                <strong>[{n['Ders']}] {n['Konu']}</strong> <span style="font-size:11px; color:#64748b;">({n['Tarih']})</span><br>
+                <span>{n['İçerik']}</span>
+            </div>
+            """
+    else:
+        html_content += "<p>Kayıtlı ders notu yok.</p>"
+        
+    html_content += """
+    </body>
+    </html>
+    """
+    return html_content
+
+# Profil Verisi
 cursor = conn.cursor()
 cursor.execute("SELECT name, department, grade, current_gpa FROM profile WHERE id = 1")
 prof_row = cursor.fetchone()
 if not prof_row or prof_row[0] == "Furkan Aktaş":
-    cursor.execute("UPDATE profile SET name='İYTE Öğrenci Paneli', department='Makine Mühendisliği', grade='Lisans' WHERE id=1")
+    cursor.execute("UPDATE profile SET name='İYTE Öğrenci Paneli', department='Makine Mühendisliği', grade='3. Sınıf' WHERE id=1")
     conn.commit()
-    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "Lisans", "current_gpa": 3.00}
+    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "3. Sınıf", "current_gpa": 3.81}
 else:
     profile = {"name": prof_row[0], "department": prof_row[1], "grade": prof_row[2], "current_gpa": prof_row[3]}
 
 # -----------------------------------------------------------------------------
-# 3. YAN MENÜ & PROFİL YAPILANDIRMASI
+# 3. YAN MENÜ
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(f"""
@@ -191,14 +243,83 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    menu = st.radio("Navigasyon", ["📈 Dönem & Sınav Not Takibi", "📊 Aylık Başarı Trendi", "📅 Sınav Takvimi & Geri Sayım", "📝 Ders Notları", "⚙️ Ders & Müfredat Yönetimi"])
+    menu = st.radio("Navigasyon", [
+        "🎯 Dinamik AGNO / GANO Simülatörü", 
+        "📈 Dönem & Sınav Not Takibi", 
+        "📊 Aylık Başarı Trendi", 
+        "📅 Sınav Takvimi & Geri Sayım", 
+        "📝 Ders Notları", 
+        "🖨️ PDF / HTML Rapor Al",
+        "⚙️ Ders & Müfredat Yönetimi"
+    ])
 
 # -----------------------------------------------------------------------------
 # 4. MODÜLLER
 # -----------------------------------------------------------------------------
 
+# --- MODÜL 0: DİNAMİK AGNO / GANO (CGPA) SİMÜLATÖRÜ ---
+if menu == "🎯 Dinamik AGNO / GANO Simülatörü":
+    st.markdown("<h1 class='custom-header'>Dinamik AGNO / GANO (CGPA) Hesaplayıcı</h1>", unsafe_allow_html=True)
+    st.caption("Şimdiye kadarki birikimli durumunuzu girin; ardından dönem derslerinizin harf notlarını seçerek YENİ GANO'nuzu ve Dönem Ortalamanızı canlı izleyin.")
+    
+    col_prev1, col_prev2, col_prev3 = st.columns(3)
+    prev_gpa = col_prev1.number_input("Geçmiş Birikimli AGNO (CGPA)", min_value=0.0, max_value=4.0, value=float(profile['current_gpa']), step=0.01)
+    prev_credits = col_prev2.number_input("Tamamlanan Toplam Kredi", min_value=0, max_value=200, value=60, step=1)
+    
+    prev_points = prev_gpa * prev_credits
+    col_prev3.metric("Önceki Toplam Kalite Puanı", f"{prev_points:.1f} Puan")
+    
+    st.divider()
+    st.subheader("📝 Aktif Dönem Tahmini Harf Notları")
+    
+    courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses", conn)
+    
+    if not courses_df.empty:
+        term_credits = 0
+        term_weighted_points = 0
+        
+        col_c1, col_c2 = st.columns([2, 1])
+        
+        with col_c1:
+            for _, c_row in courses_df.iterrows():
+                cc1, cc2, cc3 = st.columns([1, 2, 1])
+                cc1.write(f"**{c_row['code']}**")
+                cc2.write(f"{c_row['name']} *({c_row['credit']} Kredi)*")
+                
+                selected_letter = cc3.selectbox(
+                    f"Not", 
+                    list(HARF_KATSAYI.keys()), 
+                    index=0, 
+                    key=f"letter_sim_{c_row['id']}"
+                )
+                
+                c_credit = c_row['credit']
+                term_credits += c_credit
+                term_weighted_points += c_credit * HARF_KATSAYI[selected_letter]
+        
+        term_gpa = (term_weighted_points / term_credits) if term_credits > 0 else 0.0
+        
+        total_accumulated_credits = prev_credits + term_credits
+        total_accumulated_points = prev_points + term_weighted_points
+        new_cgpa = (total_accumulated_points / total_accumulated_credits) if total_accumulated_credits > 0 else 0.0
+        cgpa_diff = new_cgpa - prev_gpa
+
+        with col_c2:
+            st.markdown("### 📊 Canlı Sonuçlar")
+            st.metric("Dönem Ortalaması (SPA / GPA)", f"{term_gpa:.2f} / 4.00")
+            st.metric("YENİ BİRİKİMLİ AGNO (CGPA)", f"{new_cgpa:.2f}", delta=f"{cgpa_diff:+.2f} Değişim")
+            
+            st.info(f"""
+            **Özet Tablo:**
+            * **Dönem Kredisi:** {term_credits} Kredi
+            * **Dönem Kalite Puanı:** {term_weighted_points:.1f} Puan
+            * **Yeni Toplam Kredi:** {total_accumulated_credits} Kredi
+            """)
+    else:
+        st.info("Simülasyon yapmak için öncelikle '⚙️ Ders & Müfredat Yönetimi' sekmesinden bu dönemin derslerini seçip ekleyin.")
+
 # --- MODÜL 1: DÖNEM & SINAV NOT TAKİBİ ---
-if menu == "📈 Dönem & Sınav Not Takibi":
+elif menu == "📈 Dönem & Sınav Not Takibi":
     st.markdown("<h1 class='custom-header'>Akademik Performans & Not Takibi</h1>", unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
@@ -371,7 +492,36 @@ elif menu == "📝 Ders Notları":
                     conn.commit()
                     st.rerun()
 
-# --- MODÜL 5: DERS & MÜFREDAT YÖNETİMİ ---
+# --- MODÜL 5: PDF / HTML RAPOR AL ---
+elif menu == "🖨️ PDF / HTML Rapor Al":
+    st.markdown("<h1 class='custom-header'>Akademik Durum Raporu (PDF / Baskı)</h1>", unsafe_allow_html=True)
+    st.write("Derslerinizi, sınav notlarınızı ve ders notlarınızı tam Türkçe karakter desteğiyle raporlandırıp çıktı alın.")
+    
+    df_c_exp = pd.read_sql_query("SELECT code AS 'Ders Kodu', name AS 'Ders Adı', credit AS 'Yerel Kredi', ects AS 'AKTS' FROM courses", conn)
+    df_e_exp = pd.read_sql_query('''
+        SELECT c.code AS 'Ders', e.title AS 'Etkinlik', e.event_type AS 'Tür', e.event_date AS 'Tarih', e.weight AS 'Ağırlık (%)', 
+               IFNULL(e.score, 'Girilmedi') AS 'Aldığı Not'
+        FROM exams e JOIN courses c ON e.course_id = c.id ORDER BY e.event_date ASC
+    ''', conn)
+    df_n_exp = pd.read_sql_query('''
+        SELECT c.code AS 'Ders', n.topic AS 'Konu', n.content AS 'İçerik', n.created_at AS 'Tarih'
+        FROM notes n JOIN courses c ON n.course_id = c.id ORDER BY n.created_at DESC
+    ''', conn)
+    
+    html_code = generate_html_report(profile, df_c_exp, df_e_exp, df_n_exp)
+    
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        st.download_button(
+            label="📄 Rapor Belgesini İndir (.html / Baskıya Hazır)",
+            data=html_code,
+            file_name=f"IYTE_Akademik_Rapor_{date.today()}.html",
+            mime="text/html"
+        )
+    with col_d2:
+        st.info("💡 **PDF Olarak Kaydetme İpucu:** İndirdiğiniz dosyaya tıklayıp tarayıcıda açtıktan sonra `Ctrl + P` (Mobilde 'Yazdır') diyerek 'PDF Olarak Kaydet' seçeneğiyle %100 düzgün Türkçe karakterli PDF elde edebilirsiniz!")
+
+# --- MODÜL 6: DERS & MÜFREDAT YÖNETİMİ ---
 elif menu == "⚙️ Ders & Müfredat Yönetimi":
     st.markdown("<h1 class='custom-header'>Ders & Müfredat Yönetimi</h1>", unsafe_allow_html=True)
     
