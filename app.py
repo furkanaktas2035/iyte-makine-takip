@@ -83,7 +83,7 @@ if 'user_id' not in st.session_state:
 
 user_id = st.session_state['user_id']
 
-# Kullanıcı Profilini Getir / Yoksa Oluştur
+# Kullanıcı Profilini Getir
 prof_row = db.get_or_create_profile(user_id)
 profile = {
     "name": prof_row[0],
@@ -261,7 +261,8 @@ with st.sidebar:
         
         if st.button("💾 Bilgilerimi Kalıcı Kaydet"):
             db.update_profile(user_id, u_name, u_dept, u_grade, u_gpa, u_credits)
-            st.success("Bilgileriniz kaydedildi! Kapatıp açsanız da saklanacaktır.")
+            st.toast("✅ Profil bilgileriniz başarıyla kaydedildi!", icon="🎉")
+            time.sleep(0.8)
             st.rerun()
 
     st.divider()
@@ -277,7 +278,7 @@ with st.sidebar:
         "⚙️ Ders & Müfredat Yönetimi"
     ])
 
-# Akıllı Uyarı Engine (Kullanıcıya Özel)
+# Akıllı Uyarı Engine
 df_alert = pd.read_sql_query('''
     SELECT c.code, e.title, e.event_date 
     FROM exams e JOIN courses c ON e.course_id = c.id 
@@ -296,15 +297,18 @@ if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "�
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU
+# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU (DÜZELTİLDİ)
 # -----------------------------------------------------------------------------
 def calculate_combined_gpa():
-    courses_df = pd.read_sql_query("SELECT id, credit FROM courses WHERE user_id = ?", conn, params=(user_id,))
+    courses_df = pd.read_sql_query("SELECT id, credit, ects FROM courses WHERE user_id = ?", conn, params=(user_id,))
     
     if courses_df.empty:
-        return 0.0, profile['current_gpa'], 0
+        return 0.0, profile['current_gpa'], 0, 0
         
-    term_credits = 0
+    total_term_credits = courses_df['credit'].sum()
+    total_term_ects = courses_df['ects'].sum()
+    
+    evaluated_term_credits = 0
     term_weighted_points = 0
     
     for _, c_row in courses_df.iterrows():
@@ -326,18 +330,18 @@ def calculate_combined_gpa():
                 elif course_avg >= 60: letter_coeff = 1.0
                 else: letter_coeff = 0.0
                 
-                term_credits += c_credit
+                evaluated_term_credits += c_credit
                 term_weighted_points += c_credit * letter_coeff
 
-    term_gpa = (term_weighted_points / term_credits) if term_credits > 0 else 0.0
+    term_gpa = (term_weighted_points / evaluated_term_credits) if evaluated_term_credits > 0 else 0.0
     
     prev_points = profile['current_gpa'] * profile['current_credits']
-    tot_accumulated_credits = profile['current_credits'] + term_credits
+    tot_accumulated_credits = profile['current_credits'] + evaluated_term_credits
     tot_accumulated_points = prev_points + term_weighted_points
     
     new_combined_cgpa = (tot_accumulated_points / tot_accumulated_credits) if tot_accumulated_credits > 0 else profile['current_gpa']
     
-    return term_gpa, new_combined_cgpa, term_credits
+    return term_gpa, new_combined_cgpa, total_term_credits, total_term_ects
 
 # -----------------------------------------------------------------------------
 # 6. MODÜLLER
@@ -347,13 +351,14 @@ def calculate_combined_gpa():
 if menu == "📈 Dönem & Sınav Not Takibi":
     st.markdown("<h1 class='custom-header'>Akademik Performans & Not Takibi</h1>", unsafe_allow_html=True)
     
-    term_gpa, combined_cgpa, term_credits = calculate_combined_gpa()
+    term_gpa, combined_cgpa, total_term_credits, total_term_ects = calculate_combined_gpa()
     
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Geçmiş Birikimli AGNO", f"{profile['current_gpa']:.2f}")
     c2.metric("Güncel Dönem Ortalaması (GPA)", f"{term_gpa:.2f}")
-    c3.metric("YENİ TOPLAM BİRİKİMLİ AGNO", f"{combined_cgpa:.2f}", delta=f"{combined_cgpa - profile['current_gpa']:+.2f}")
-    c4.metric("Aktif Dönem Kredisi", f"{term_credits} Kredi")
+    c3.metric("DÖNEM SONU BEKLENEN AGNO", f"{combined_cgpa:.2f}", delta=f"{combined_cgpa - profile['current_gpa']:+.2f}")
+    c4.metric("Aktif Dönem Kredisi", f"{total_term_credits} Kredi")
+    c5.metric("Aktif Dönem AKTS", f"{total_term_ects} AKTS")
 
     st.divider()
     courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses WHERE user_id = ?", conn, params=(user_id,))
@@ -381,14 +386,16 @@ if menu == "📈 Dönem & Sınav Not Takibi":
                                 cursor = conn.cursor()
                                 cursor.execute("UPDATE exams SET score = ? WHERE id = ? AND user_id = ?", (new_s, ex['id'], user_id))
                                 conn.commit()
-                                st.success("Kaydedildi!")
+                                st.toast(f"✅ {ex['title']} notu kaydedildi!", icon="💾")
+                                time.sleep(0.5)
                                 st.rerun()
                                 
                             if cd.button("🗑️ Sil", key=f"btn_del_ex_{ex['id']}"):
                                 cursor = conn.cursor()
                                 cursor.execute("DELETE FROM exams WHERE id = ? AND user_id = ?", (ex['id'], user_id))
                                 conn.commit()
-                                st.warning("Silindi!")
+                                st.toast("🗑️ Sınav silindi!", icon="⚠️")
+                                time.sleep(0.5)
                                 st.rerun()
                     else:
                         st.info("Bu ders için henüz sınav eklenmedi.")
@@ -611,7 +618,8 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
                 cursor.execute("INSERT INTO exams (user_id, course_id, title, event_type, event_date, weight) VALUES (?, ?, ?, ?, ?, ?)",
                                (user_id, c_dict[sel_c], title, e_type, e_date, weight))
                 conn.commit()
-                st.success("Sınav eklendi!")
+                st.toast(f"✅ {title} sınavı takvime eklendi!", icon="📅")
+                time.sleep(0.5)
                 st.rerun()
 
     df_e = pd.read_sql_query('''
@@ -634,6 +642,8 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM exams WHERE id = ? AND user_id = ?", (r['id'], user_id))
                     conn.commit()
+                    st.toast("🗑️ Sınav silindi!", icon="🗑️")
+                    time.sleep(0.5)
                     st.rerun()
 
 # --- MODÜL 7: DERS NOTLARI ---
@@ -655,7 +665,8 @@ elif menu == "📝 Ders Notları":
                 cursor = conn.cursor()
                 cursor.execute("INSERT INTO notes (user_id, course_id, topic, content, tag) VALUES (?, ?, ?, ?, ?)", (user_id, sel_id, topic, content, tag))
                 conn.commit()
-                st.success("Not eklendi!")
+                st.toast("📝 Ders notu başarıyla eklendi!", icon="✅")
+                time.sleep(0.5)
                 st.rerun()
 
         st.subheader("📌 Geçmiş Notlar")
@@ -667,6 +678,8 @@ elif menu == "📝 Ders Notları":
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM notes WHERE id = ? AND user_id = ?", (n['id'], user_id))
                     conn.commit()
+                    st.toast("🗑️ Ders notu silindi!", icon="🗑️")
+                    time.sleep(0.5)
                     st.rerun()
 
 # --- MODÜL 8: PDF / HTML RAPOR AL ---
@@ -731,7 +744,8 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
                                        (user_id, c['code'], c['name'], c['credit'], c['ects'], c['sem']))
                         count += 1
                 conn.commit()
-                st.success(f"{count} yeni ders eklendi!")
+                st.toast(f"🎉 {count} yeni ders sayfanıza eklendi!", icon="✅")
+                time.sleep(0.8)
                 st.rerun()
             else:
                 st.warning("Lütfen eklemek istediğiniz dersleri işaretleyin.")
@@ -749,7 +763,8 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
                 cursor.execute("INSERT INTO courses (user_id, code, name, credit, ects, semester) VALUES (?, ?, ?, ?, ?, 5)",
                                (user_id, m_code, m_name, m_credit, m_ects))
                 conn.commit()
-                st.success(f"{m_code} dersi eklendi!")
+                st.toast(f"✅ {m_code} seçmeli dersi eklendi!", icon="🎉")
+                time.sleep(0.8)
                 st.rerun()
 
     with tab3:
@@ -764,7 +779,8 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM courses WHERE id = ? AND user_id = ?", (r['id'], user_id))
                     conn.commit()
-                    st.warning(f"{r['Kodu']} silindi!")
+                    st.toast(f"🗑️ {r['Kodu']} dersi başarıyla silindi!", icon="🗑️")
+                    time.sleep(0.8)
                     st.rerun()
         else:
             st.info("Kayıtlı ders bulunmuyor.")
