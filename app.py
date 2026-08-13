@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import database as db
+import plotly.graph_objects as go
+import time
 
 # -----------------------------------------------------------------------------
 # 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU PREMIUM CSS
@@ -45,18 +47,25 @@ CUSTOM_CSS = """
         -webkit-text-fill-color: transparent;
         margin-bottom: 15px;
     }
+    .alert-card {
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 20px;
+    }
+    .pomo-card {
+        background: rgba(99, 102, 241, 0.12);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 16px;
+        padding: 20px;
+        text-align: center;
+    }
     @media (max-width: 768px) {
         .stApp { padding: 5px; }
         div[data-testid="stMetric"] { padding: 12px; }
-        .custom-header { font-size: 24px !important; }
+        .custom-header { font-size: 22px !important; }
         .stButton>button { width: 100%; border-radius: 10px; }
-    }
-    .trend-card-up {
-        background: rgba(16, 185, 129, 0.12);
-        border: 1px solid rgba(16, 185, 129, 0.3);
-        padding: 16px;
-        border-radius: 14px;
-        margin-bottom: 15px;
     }
 </style>
 """
@@ -72,6 +81,11 @@ conn = db.get_connection()
 HARF_KATSAYI = {
     "AA": 4.0, "BA": 3.5, "BB": 3.0, "CB": 2.5,
     "CC": 2.0, "DC": 1.5, "DD": 1.0, "FF": 0.0
+}
+
+HARF_ALT_SINIR = {
+    "AA": 90, "BA": 85, "BB": 80, "CB": 75,
+    "CC": 70, "DC": 65, "DD": 60
 }
 
 IYTE_ALL_COURSES = [
@@ -213,10 +227,10 @@ def generate_html_report(profile_data, df_courses_summary, df_exams_summary, df_
 cursor = conn.cursor()
 cursor.execute("SELECT name, department, grade, current_gpa FROM profile WHERE id = 1")
 prof_row = cursor.fetchone()
-if not prof_row or prof_row[0] == "Furkan Aktaş":
-    cursor.execute("UPDATE profile SET name='İYTE Öğrenci Paneli', department='Makine Mühendisliği', grade='3. Sınıf' WHERE id=1")
+if not prof_row or prof_row[0] in ["Furkan Aktaş", "İYTE Öğrenci Paneli"]:
+    cursor.execute("UPDATE profile SET name='İYTE Öğrenci Paneli', department='Makine Mühendisliği', grade='3. Sınıf', current_gpa=3.00 WHERE id=1")
     conn.commit()
-    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "3. Sınıf", "current_gpa": 3.81}
+    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "3. Sınıf", "current_gpa": 3.00}
 else:
     profile = {"name": prof_row[0], "department": prof_row[1], "grade": prof_row[2], "current_gpa": prof_row[3]}
 
@@ -236,7 +250,7 @@ with st.sidebar:
         u_name = st.text_input("Ad Soyad / Kullanıcı Adı", value=profile['name'])
         u_dept = st.text_input("Bölüm", value=profile['department'])
         u_grade = st.selectbox("Sınıf", ["1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf", "Lisans"], index=2)
-        u_gpa = st.number_input("Mevcut AGNO", min_value=0.0, max_value=4.0, value=profile['current_gpa'], step=0.01)
+        u_gpa = st.number_input("Mevcut AGNO", min_value=0.0, max_value=4.0, value=float(profile['current_gpa']), step=0.01)
         if st.button("Profil Bilgilerini Kaydet"):
             cursor.execute("UPDATE profile SET name=?, department=?, grade=?, current_gpa=? WHERE id=1", (u_name, u_dept, u_grade, u_gpa))
             conn.commit()
@@ -244,8 +258,10 @@ with st.sidebar:
 
     st.divider()
     menu = st.radio("Navigasyon", [
-        "🎯 Dinamik AGNO / GANO Simülatörü", 
         "📈 Dönem & Sınav Not Takibi", 
+        "🎯 Gerekli Final Notu Hesaplayıcı",
+        "🎯 Dinamik AGNO / GANO Simülatörü", 
+        "⏱️ Pomodoro Çalışma Sayacı",
         "📊 Aylık Başarı Trendi", 
         "📅 Sınav Takvimi & Geri Sayım", 
         "📝 Ders Notları", 
@@ -253,73 +269,29 @@ with st.sidebar:
         "⚙️ Ders & Müfredat Yönetimi"
     ])
 
+# Akıllı Uyarı Engine (Yaklaşan İlk Sınav)
+df_alert = pd.read_sql_query('''
+    SELECT c.code, e.title, e.event_date 
+    FROM exams e JOIN courses c ON e.course_id = c.id 
+    WHERE e.event_date >= DATE('now') ORDER BY e.event_date ASC LIMIT 1
+''', conn)
+
+if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "🖨️ PDF / HTML Rapor Al"]:
+    ex_date = datetime.strptime(df_alert.iloc[0]['event_date'], "%Y-%m-%d").date()
+    days_left = (ex_date - date.today()).days
+    st.markdown(f"""
+    <div class="alert-card">
+        🚨 <b>YAKLAŞAN AKADEMİK ETKİNLİK UYARISI:</b> <b>{df_alert.iloc[0]['code']} - {df_alert.iloc[0]['title']}</b> sınavına 
+        <b>{days_left} gün</b> kaldı! Tarih: <i>{df_alert.iloc[0]['event_date']}</i>
+    </div>
+    """, unsafe_allow_html=True)
+
 # -----------------------------------------------------------------------------
 # 4. MODÜLLER
 # -----------------------------------------------------------------------------
 
-# --- MODÜL 0: DİNAMİK AGNO / GANO (CGPA) SİMÜLATÖRÜ ---
-if menu == "🎯 Dinamik AGNO / GANO Simülatörü":
-    st.markdown("<h1 class='custom-header'>Dinamik AGNO / GANO (CGPA) Hesaplayıcı</h1>", unsafe_allow_html=True)
-    st.caption("Şimdiye kadarki birikimli durumunuzu girin; ardından dönem derslerinizin harf notlarını seçerek YENİ GANO'nuzu ve Dönem Ortalamanızı canlı izleyin.")
-    
-    col_prev1, col_prev2, col_prev3 = st.columns(3)
-    prev_gpa = col_prev1.number_input("Geçmiş Birikimli AGNO (CGPA)", min_value=0.0, max_value=4.0, value=float(profile['current_gpa']), step=0.01)
-    prev_credits = col_prev2.number_input("Tamamlanan Toplam Kredi", min_value=0, max_value=200, value=60, step=1)
-    
-    prev_points = prev_gpa * prev_credits
-    col_prev3.metric("Önceki Toplam Kalite Puanı", f"{prev_points:.1f} Puan")
-    
-    st.divider()
-    st.subheader("📝 Aktif Dönem Tahmini Harf Notları")
-    
-    courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses", conn)
-    
-    if not courses_df.empty:
-        term_credits = 0
-        term_weighted_points = 0
-        
-        col_c1, col_c2 = st.columns([2, 1])
-        
-        with col_c1:
-            for _, c_row in courses_df.iterrows():
-                cc1, cc2, cc3 = st.columns([1, 2, 1])
-                cc1.write(f"**{c_row['code']}**")
-                cc2.write(f"{c_row['name']} *({c_row['credit']} Kredi)*")
-                
-                selected_letter = cc3.selectbox(
-                    f"Not", 
-                    list(HARF_KATSAYI.keys()), 
-                    index=0, 
-                    key=f"letter_sim_{c_row['id']}"
-                )
-                
-                c_credit = c_row['credit']
-                term_credits += c_credit
-                term_weighted_points += c_credit * HARF_KATSAYI[selected_letter]
-        
-        term_gpa = (term_weighted_points / term_credits) if term_credits > 0 else 0.0
-        
-        total_accumulated_credits = prev_credits + term_credits
-        total_accumulated_points = prev_points + term_weighted_points
-        new_cgpa = (total_accumulated_points / total_accumulated_credits) if total_accumulated_credits > 0 else 0.0
-        cgpa_diff = new_cgpa - prev_gpa
-
-        with col_c2:
-            st.markdown("### 📊 Canlı Sonuçlar")
-            st.metric("Dönem Ortalaması (SPA / GPA)", f"{term_gpa:.2f} / 4.00")
-            st.metric("YENİ BİRİKİMLİ AGNO (CGPA)", f"{new_cgpa:.2f}", delta=f"{cgpa_diff:+.2f} Değişim")
-            
-            st.info(f"""
-            **Özet Tablo:**
-            * **Dönem Kredisi:** {term_credits} Kredi
-            * **Dönem Kalite Puanı:** {term_weighted_points:.1f} Puan
-            * **Yeni Toplam Kredi:** {total_accumulated_credits} Kredi
-            """)
-    else:
-        st.info("Simülasyon yapmak için öncelikle '⚙️ Ders & Müfredat Yönetimi' sekmesinden bu dönemin derslerini seçip ekleyin.")
-
 # --- MODÜL 1: DÖNEM & SINAV NOT TAKİBİ ---
-elif menu == "📈 Dönem & Sınav Not Takibi":
+if menu == "📈 Dönem & Sınav Not Takibi":
     st.markdown("<h1 class='custom-header'>Akademik Performans & Not Takibi</h1>", unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
@@ -382,7 +354,150 @@ elif menu == "📈 Dönem & Sınav Not Takibi":
     else:
         st.info("Henüz eklenmiş bir dersiniz yok. '⚙️ Ders & Müfredat Yönetimi' sekmesinden derslerinizi ekleyebilirsiniz.")
 
-# --- MODÜL 2: AYLIK BAŞARI TRENDİ ---
+# --- MODÜL 2: GEREKLİ FİNAL NOTU HESAPLAYICI ---
+elif menu == "🎯 Gerekli Final Notu Hesaplayıcı":
+    st.markdown("<h1 class='custom-header'>Hedef Harf Notu İçin Gerekli Final Notu</h1>", unsafe_allow_html=True)
+    st.caption("Girdiğiniz vize/quiz notlarına göre istediğiniz harf notunu (AA, BA, CC vb.) alabilmek için Final sınavından kaç almanız gerektiğini hesaplar.")
+    
+    courses_df = pd.read_sql_query("SELECT id, code, name FROM courses", conn)
+    
+    if not courses_df.empty:
+        for _, c_row in courses_df.iterrows():
+            with st.expander(f"🎯 **{c_row['code']} - {c_row['name']}**", expanded=True):
+                exams_df = pd.read_sql_query("SELECT title, weight, score FROM exams WHERE course_id = ?", conn, params=(c_row['id'],))
+                
+                if not exams_df.empty:
+                    completed_exams = exams_df[exams_df['score'].notnull()]
+                    if not completed_exams.empty:
+                        tot_w = completed_exams['weight'].sum()
+                        current_weighted_sum = (completed_exams['score'] * completed_exams['weight']).sum()
+                        rem_weight = 100 - tot_w
+                        
+                        if rem_weight > 0:
+                            st.write(f"Mevcut Tamamlanan Ağırlık: **%{tot_w}** | Kalan Final Ağırlığı: **%{rem_weight}**")
+                            
+                            target_letter = st.selectbox("Hedeflediğiniz Harf Notunu Seçin", list(HARF_ALT_SINIR.keys()), index=4, key=f"target_l_{c_row['id']}")
+                            target_min_score = HARF_ALT_SINIR[target_letter]
+                            
+                            # Gerekli Final Notu Formülü: (HedefToplam - MevcutAğırlıklıToplam) / KalanAğırlık
+                            needed_final = (target_min_score * 100 - current_weighted_sum) / rem_weight
+                            
+                            if needed_final <= 0:
+                                st.success(f"🎉 Tebrikler! Zaten vize notlarınızla **{target_letter}** harf notunu garantilediniz (Finalden 0 bile alsanız yeterli).")
+                            elif needed_final > 100:
+                                st.error(f"⚠️ Maalesef! Finalden 100 dahi alsanız bu dersten **{target_letter}** almak matematiksel olarak mümkün değil (Max alabileceğiniz not sınırı aşılıyor).")
+                            else:
+                                st.info(f"💡 **{target_letter}** alabilmek için Final sınavından minimum **{needed_final:.1f}** almanız gerekiyor.")
+                        else:
+                            st.write("Bu dersin tüm %100 değerlendirmeleri tamamlanmış.")
+                    else:
+                        st.warning("Girilmiş vize/quiz notu yok. Sınav notlarınızı girdikten sonra hesaplanacaktır.")
+                else:
+                    st.info("Sınav eklenmemiş.")
+    else:
+        st.info("Lütfen önce derslerinizi tanımlayın.")
+
+# --- MODÜL 3: DİNAMİK AGNO / GANO (CGPA) SİMÜLATÖRÜ ---
+elif menu == "🎯 Dinamik AGNO / GANO Simülatörü":
+    st.markdown("<h1 class='custom-header'>Dinamik AGNO / GANO (CGPA) Hesaplayıcı</h1>", unsafe_allow_html=True)
+    st.caption("Şimdiye kadarki birikimli durumunuzu girin; ardından dönem derslerinizin harf notlarını seçerek YENİ GANO'nuzu ve Dönem Ortalamanızı canlı izleyin.")
+    
+    col_prev1, col_prev2, col_prev3 = st.columns(3)
+    prev_gpa = col_prev1.number_input("Geçmiş Birikimli AGNO (CGPA)", min_value=0.0, max_value=4.0, value=float(profile['current_gpa']), step=0.01)
+    prev_credits = col_prev2.number_input("Tamamlanan Toplam Kredi", min_value=0, max_value=200, value=60, step=1)
+    
+    prev_points = prev_gpa * prev_credits
+    col_prev3.metric("Önceki Toplam Kalite Puanı", f"{prev_points:.1f} Puan")
+    
+    st.divider()
+    st.subheader("📝 Aktif Dönem Tahmini Harf Notları")
+    
+    courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses", conn)
+    
+    if not courses_df.empty:
+        term_credits = 0
+        term_weighted_points = 0
+        
+        col_c1, col_c2 = st.columns([2, 1])
+        
+        with col_c1:
+            for _, c_row in courses_df.iterrows():
+                cc1, cc2, cc3 = st.columns([1, 2, 1])
+                cc1.write(f"**{c_row['code']}**")
+                cc2.write(f"{c_row['name']} *({c_row['credit']} Kredi)*")
+                
+                selected_letter = cc3.selectbox(
+                    f"Not", 
+                    list(HARF_KATSAYI.keys()), 
+                    index=0, 
+                    key=f"letter_sim_{c_row['id']}"
+                )
+                
+                c_credit = c_row['credit']
+                term_credits += c_credit
+                term_weighted_points += c_credit * HARF_KATSAYI[selected_letter]
+        
+        term_gpa = (term_weighted_points / term_credits) if term_credits > 0 else 0.0
+        
+        total_accumulated_credits = prev_credits + term_credits
+        total_accumulated_points = prev_points + term_weighted_points
+        new_cgpa = (total_accumulated_points / total_accumulated_credits) if total_accumulated_credits > 0 else 0.0
+        cgpa_diff = new_cgpa - prev_gpa
+
+        with col_c2:
+            st.markdown("### 📊 Canlı Sonuçlar")
+            st.metric("Dönem Ortalaması (SPA / GPA)", f"{term_gpa:.2f} / 4.00")
+            st.metric("YENİ BİRİKİMLİ AGNO (CGPA)", f"{new_cgpa:.2f}", delta=f"{cgpa_diff:+.2f} Değişim")
+            
+            st.info(f"""
+            **Özet Tablo:**
+            * **Dönem Kredisi:** {term_credits} Kredi
+            * **Dönem Kalite Puanı:** {term_weighted_points:.1f} Puan
+            * **Yeni Toplam Kredi:** {total_accumulated_credits} Kredi
+            """)
+    else:
+        st.info("Simülasyon yapmak için öncelikle '⚙️ Ders & Müfredat Yönetimi' sekmesinden bu dönemin derslerini seçip ekleyin.")
+
+# --- MODÜL 4: POMODORO ÇALIŞMA SAYACI ---
+elif menu == "⏱️ Pomodoro Çalışma Sayacı":
+    st.markdown("<h1 class='custom-header'>Ders Odaklanma & Pomodoro Kronometresi</h1>", unsafe_allow_html=True)
+    
+    col_p1, col_p2 = st.columns([1, 2])
+    
+    with col_p1:
+        pomo_minutes = st.number_input("Çalışma Süresi (Dakika)", min_value=1, max_value=120, value=25)
+        if st.button("🚀 Çalışmayı Başlat"):
+            st.session_state['pomo_run'] = True
+            st.session_state['pomo_seconds'] = pomo_minutes * 60
+
+    with col_p2:
+        if st.session_state.get('pomo_run', False):
+            timer_placeholder = st.empty()
+            while st.session_state['pomo_seconds'] > 0 and st.session_state.get('pomo_run', False):
+                mins, secs = divmod(st.session_state['pomo_seconds'], 60)
+                timer_str = f"{mins:02d}:{secs:02d}"
+                timer_placeholder.markdown(f"""
+                <div class="pomo-card">
+                    <h1 style="font-size: 64px; color: #38bdf8; margin:0;">{timer_str}</h1>
+                    <p style="color:#a5b4fc;">Odaklanma Modu Aktif - İyi Çalışmalar!</p>
+                </div>
+                """, unsafe_allow_html=True)
+                time.sleep(1)
+                st.session_state['pomo_seconds'] -= 1
+                
+            if st.session_state['pomo_seconds'] == 0:
+                st.balloons()
+                st.success("🎉 Harika! Çalışma seansı tamamlandı. Şimdi 5 dakika mola verebilirsin!")
+                st.session_state['pomo_run'] = False
+        else:
+            st.markdown("""
+            <div class="pomo-card">
+                <h2 style="color: #818cf8; margin:0;">25:00</h2>
+                <p style="color:#cbd5e1;">Başlamak için soldaki butona basın.</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+# --- MODÜL 5: AYLIK BAŞARI TRENDİ ---
 elif menu == "📊 Aylık Başarı Trendi":
     st.markdown("<h1 class='custom-header'>Aylık Başarı Eğrisi & Trend Analizi</h1>", unsafe_allow_html=True)
     
@@ -396,30 +511,34 @@ elif menu == "📊 Aylık Başarı Trendi":
     df_trend = pd.read_sql_query(query_monthly, conn)
     
     if not df_trend.empty and len(df_trend) >= 1:
-        st.subheader("📈 Aylık Not Gelişim Grafiği")
-        st.line_chart(df_trend.set_index('Ay')['Ortalama'], use_container_width=True)
+        st.subheader("📈 Pro Seviye Aylık Not Gelişim Grafiği")
         
-        if len(df_trend) >= 2:
-            last_month = df_trend.iloc[-1]['Ortalama']
-            prev_month = df_trend.iloc[-2]['Ortalama']
-            diff = last_month - prev_month
-            pct_change = (diff / prev_month) * 100 if prev_month > 0 else 0
-            
-            if diff >= 0:
-                st.markdown(f"""
-                <div class="trend-card-up">
-                    <h4>🚀 Harika İlerleme!</h4>
-                    <p>Bu ayki ortalamanız (<b>{last_month:.2f}</b>), geçen aya (<b>{prev_month:.2f}</b>) göre <b>%{pct_change:.1f} daha yüksek!</b> Performansınız yükselişte.</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.warning(f"⚠️ Bu ayki ortalamanız geçen aya göre %{abs(pct_change):.1f} bir miktar düşüş gösterdi.")
-        else:
-            st.info(f"Geçerli ay ortalamanız: **{df_trend.iloc[0]['Ortalama']:.2f}**.")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_trend['Ay'],
+            y=df_trend['Ortalama'],
+            mode='lines+markers',
+            name='Aylık Ortalama',
+            line=dict(color='#38bdf8', width=4, shape='spline'),
+            marker=dict(size=10, color='#818cf8', line=dict(color='#38bdf8', width=2)),
+            hovertemplate='<b>Ay:</b> %{x}<br><b>Ortalama Not:</b> %{y:.2f} Puan<extra></extra>'
+        ))
+
+        fig.update_layout(
+            paper_bgcolor='rgba(15, 23, 42, 0.6)',
+            plot_bgcolor='rgba(15, 23, 42, 0.6)',
+            font=dict(color='#f8fafc', family='Inter, sans-serif'),
+            margin=dict(l=20, r=20, t=30, b=20),
+            xaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.08)', title='Dönem / Ay'),
+            yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.08)', title='Ağırlıklı Sınav Ortalaması (0-100)', range=[0, 105]),
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Aylık başarı eğrisi için sınav tarihlerini ve aldığınız notları girmelisiniz.")
 
-# --- MODÜL 3: SINAV TAKVİMİ & GERİ SAYIM ---
+# --- MODÜL 6: SINAV TAKVİMİ & GERİ SAYIM ---
 elif menu == "📅 Sınav Takvimi & Geri Sayım":
     st.markdown("<h1 class='custom-header'>Sınav Takvimi & Geri Sayım</h1>", unsafe_allow_html=True)
     
@@ -461,7 +580,7 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
                     conn.commit()
                     st.rerun()
 
-# --- MODÜL 4: DERS NOTLARI ---
+# --- MODÜL 7: DERS NOTLARI ---
 elif menu == "📝 Ders Notları":
     st.markdown("<h1 class='custom-header'>Ders Notları & Formül Defteri</h1>", unsafe_allow_html=True)
     courses = pd.read_sql_query("SELECT id, code, name FROM courses", conn)
@@ -492,7 +611,7 @@ elif menu == "📝 Ders Notları":
                     conn.commit()
                     st.rerun()
 
-# --- MODÜL 5: PDF / HTML RAPOR AL ---
+# --- MODÜL 8: PDF / HTML RAPOR AL ---
 elif menu == "🖨️ PDF / HTML Rapor Al":
     st.markdown("<h1 class='custom-header'>Akademik Durum Raporu (PDF / Baskı)</h1>", unsafe_allow_html=True)
     st.write("Derslerinizi, sınav notlarınızı ve ders notlarınızı tam Türkçe karakter desteğiyle raporlandırıp çıktı alın.")
@@ -521,7 +640,7 @@ elif menu == "🖨️ PDF / HTML Rapor Al":
     with col_d2:
         st.info("💡 **PDF Olarak Kaydetme İpucu:** İndirdiğiniz dosyaya tıklayıp tarayıcıda açtıktan sonra `Ctrl + P` (Mobilde 'Yazdır') diyerek 'PDF Olarak Kaydet' seçeneğiyle %100 düzgün Türkçe karakterli PDF elde edebilirsiniz!")
 
-# --- MODÜL 6: DERS & MÜFREDAT YÖNETİMİ ---
+# --- MODÜL 9: DERS & MÜFREDAT YÖNETİMİ ---
 elif menu == "⚙️ Ders & Müfredat Yönetimi":
     st.markdown("<h1 class='custom-header'>Ders & Müfredat Yönetimi</h1>", unsafe_allow_html=True)
     
