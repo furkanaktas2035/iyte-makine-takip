@@ -297,7 +297,7 @@ if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "�
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU (DÜZELTİLDİ)
+# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU (TEK VİZE DAHİL BİLE CANLI DİNAMİK)
 # -----------------------------------------------------------------------------
 def calculate_combined_gpa():
     courses_df = pd.read_sql_query("SELECT id, credit, ects FROM courses WHERE user_id = ?", conn, params=(user_id,))
@@ -313,14 +313,19 @@ def calculate_combined_gpa():
     
     for _, c_row in courses_df.iterrows():
         c_credit = c_row['credit']
-        exams_df = pd.read_sql_query("SELECT weight, score FROM exams WHERE course_id = ? AND user_id = ? AND score IS NOT NULL", conn, params=(c_row['id'], user_id))
+        # En az bir notu girilmiş (score IS NOT NULL) sınavları çekiyoruz
+        exams_df = pd.read_sql_query(
+            "SELECT weight, score FROM exams WHERE course_id = ? AND user_id = ? AND score IS NOT NULL", 
+            conn, params=(c_row['id'], user_id)
+        )
         
         if not exams_df.empty:
             tot_w = exams_df['weight'].sum()
             if tot_w > 0:
                 w_sum = (exams_df['score'] * exams_df['weight']).sum()
-                course_avg = w_sum / tot_w
+                course_avg = w_sum / tot_w # O ana kadar girilmiş vizelerin kendi içindeki ağırlıklı ortalaması
                 
+                # İYTE Harf Notu Karşılığı
                 if course_avg >= 90: letter_coeff = 4.0
                 elif course_avg >= 85: letter_coeff = 3.5
                 elif course_avg >= 80: letter_coeff = 3.0
