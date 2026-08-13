@@ -4,6 +4,7 @@ from datetime import datetime, date
 import database as db
 import plotly.graph_objects as go
 import time
+import uuid
 
 # -----------------------------------------------------------------------------
 # 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU CSS
@@ -71,12 +72,29 @@ CUSTOM_CSS = """
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# Veritabanını Başlat
+# -----------------------------------------------------------------------------
+# 2. VERİTABANI İNİTİALİZASYONU VE OTURUM İZOLASYONU (USER_ID)
+# -----------------------------------------------------------------------------
 db.init_db()
 conn = db.get_connection()
 
+if 'user_id' not in st.session_state:
+    st.session_state['user_id'] = str(uuid.uuid4())
+
+user_id = st.session_state['user_id']
+
+# Kullanıcı Profilini Getir / Yoksa Oluştur
+prof_row = db.get_or_create_profile(user_id)
+profile = {
+    "name": prof_row[0],
+    "department": prof_row[1],
+    "grade": prof_row[2],
+    "current_gpa": prof_row[3] if prof_row[3] is not None else 3.00,
+    "current_credits": prof_row[4] if prof_row[4] is not None else 60
+}
+
 # -----------------------------------------------------------------------------
-# 2. İYTE HARF NOTLARI VE DERS HAVUZU
+# 3. İYTE HARF NOTLARI VE DERS HAVUZU
 # -----------------------------------------------------------------------------
 HARF_KATSAYI = {
     "AA": 4.0, "BA": 3.5, "BB": 3.0, "CB": 2.5,
@@ -92,7 +110,7 @@ IYTE_ALL_COURSES = [
     # 1. Yarıyıl
     {"code": "CHEM121", "name": "GENEL KİMYA I", "credit": 3, "ects": 5, "sem": 1},
     {"code": "CHEM141", "name": "GENEL KİMYA LABORATUVARI I", "credit": 1, "ects": 2, "sem": 1},
-    {"code": "ENG101", "name": "İNGİLİZCE OKUME VE YAZMA BECERİLERİ I", "credit": 3, "ects": 3, "sem": 1},
+    {"code": "ENG101", "name": "İNGİLİZCE OKUMA VE YAZMA BECERİLERİ I", "credit": 3, "ects": 3, "sem": 1},
     {"code": "MATH101", "name": "ÖN MATEMATİK", "credit": 0, "ects": 2, "sem": 1},
     {"code": "MATH141", "name": "TEMEL ANALİZ I", "credit": 4, "ects": 5, "sem": 1},
     {"code": "ME101", "name": "MAKİNA MÜHENDİSLİĞİNE GİRİŞ", "credit": 2, "ects": 5, "sem": 1},
@@ -103,7 +121,7 @@ IYTE_ALL_COURSES = [
     
     # 2. Yarıyıl
     {"code": "CS106", "name": "TEMEL BİLGİSAYAR BİLİMİ VE PROGRAMLAMASI", "credit": 3, "ects": 5, "sem": 2},
-    {"code": "ENG102", "name": "İNGİLİZCE OKUME VE YAZMA BECERİLERİ II", "credit": 3, "ects": 3, "sem": 2},
+    {"code": "ENG102", "name": "İNGİLİZCE OKUMA VE YAZMA BECERİLERİ II", "credit": 3, "ects": 3, "sem": 2},
     {"code": "GCC101", "name": "KARİYER PLANLAMA VE GELİŞTİRME", "credit": 0, "ects": 2, "sem": 2},
     {"code": "MATH142", "name": "TEMEL ANALİZ II", "credit": 4, "ects": 6, "sem": 2},
     {"code": "ME114", "name": "BİLGİSAYAR DESTEKLİ TEKNİK RESİM II", "credit": 3, "ects": 4, "sem": 2},
@@ -166,7 +184,6 @@ def calculate_iyte_letter(score):
     else: return "FF (0.0)"
 
 def generate_html_report(profile_data, df_courses_summary, df_exams_summary, df_notes_summary):
-    """Kusursuz Türkçe Karakter Destekli Rapor Belgesi"""
     html_content = f"""
     <!DOCTYPE html>
     <html lang="tr">
@@ -223,24 +240,8 @@ def generate_html_report(profile_data, df_courses_summary, df_exams_summary, df_
     """
     return html_content
 
-# Profil Verisi (Veri tabanında Saklanan Kullanıcı Bilgisi)
-cursor = conn.cursor()
-cursor.execute("SELECT name, department, grade, current_gpa, current_credits FROM profile WHERE id = 1")
-prof_row = cursor.fetchone()
-
-if prof_row:
-    profile = {
-        "name": prof_row[0],
-        "department": prof_row[1],
-        "grade": prof_row[2],
-        "current_gpa": prof_row[3] if prof_row[3] is not None else 3.00,
-        "current_credits": prof_row[4] if prof_row[4] is not None else 60
-    }
-else:
-    profile = {"name": "İYTE Öğrenci Paneli", "department": "Makine Mühendisliği", "grade": "3. Sınıf", "current_gpa": 3.00, "current_credits": 60}
-
 # -----------------------------------------------------------------------------
-# 3. YAN MENÜ & BİLGİLERİN SAKLANMASI
+# 4. YAN MENÜ & BİLGİLERİN SAKLANMASI
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(f"""
@@ -259,12 +260,7 @@ with st.sidebar:
         u_credits = st.number_input("Geçmiş Tamamlanan Kredi", min_value=0, max_value=250, value=int(profile['current_credits']), step=1)
         
         if st.button("💾 Bilgilerimi Kalıcı Kaydet"):
-            cursor.execute('''
-                UPDATE profile 
-                SET name=?, department=?, grade=?, current_gpa=?, current_credits=? 
-                WHERE id=1
-            ''', (u_name, u_dept, u_grade, u_gpa, u_credits))
-            conn.commit()
+            db.update_profile(user_id, u_name, u_dept, u_grade, u_gpa, u_credits)
             st.success("Bilgileriniz kaydedildi! Kapatıp açsanız da saklanacaktır.")
             st.rerun()
 
@@ -281,12 +277,13 @@ with st.sidebar:
         "⚙️ Ders & Müfredat Yönetimi"
     ])
 
-# Akıllı Uyarı Engine
+# Akıllı Uyarı Engine (Kullanıcıya Özel)
 df_alert = pd.read_sql_query('''
     SELECT c.code, e.title, e.event_date 
     FROM exams e JOIN courses c ON e.course_id = c.id 
-    WHERE e.event_date >= DATE('now') ORDER BY e.event_date ASC LIMIT 1
-''', conn)
+    WHERE e.user_id = ? AND e.event_date >= DATE('now') 
+    ORDER BY e.event_date ASC LIMIT 1
+''', conn, params=(user_id,))
 
 if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "🖨️ PDF / HTML Rapor Al"]:
     ex_date = datetime.strptime(df_alert.iloc[0]['event_date'], "%Y-%m-%d").date()
@@ -299,10 +296,10 @@ if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "�
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 4. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU
+# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU
 # -----------------------------------------------------------------------------
 def calculate_combined_gpa():
-    courses_df = pd.read_sql_query("SELECT id, credit FROM courses", conn)
+    courses_df = pd.read_sql_query("SELECT id, credit FROM courses WHERE user_id = ?", conn, params=(user_id,))
     
     if courses_df.empty:
         return 0.0, profile['current_gpa'], 0
@@ -312,14 +309,14 @@ def calculate_combined_gpa():
     
     for _, c_row in courses_df.iterrows():
         c_credit = c_row['credit']
-        exams_df = pd.read_sql_query("SELECT weight, score FROM exams WHERE course_id = ? AND score IS NOT NULL", conn, params=(c_row['id'],))
+        exams_df = pd.read_sql_query("SELECT weight, score FROM exams WHERE course_id = ? AND user_id = ? AND score IS NOT NULL", conn, params=(c_row['id'], user_id))
         
         if not exams_df.empty:
             tot_w = exams_df['weight'].sum()
             if tot_w > 0:
                 w_sum = (exams_df['score'] * exams_df['weight']).sum()
                 course_avg = w_sum / tot_w
-                # İYTE Harf Notu Karşılığı Katsayısı
+                
                 if course_avg >= 90: letter_coeff = 4.0
                 elif course_avg >= 85: letter_coeff = 3.5
                 elif course_avg >= 80: letter_coeff = 3.0
@@ -334,7 +331,6 @@ def calculate_combined_gpa():
 
     term_gpa = (term_weighted_points / term_credits) if term_credits > 0 else 0.0
     
-    # Eski Kalite Puanı + Yeni Dönem Kalite Puanı
     prev_points = profile['current_gpa'] * profile['current_credits']
     tot_accumulated_credits = profile['current_credits'] + term_credits
     tot_accumulated_points = prev_points + term_weighted_points
@@ -344,7 +340,7 @@ def calculate_combined_gpa():
     return term_gpa, new_combined_cgpa, term_credits
 
 # -----------------------------------------------------------------------------
-# 5. MODÜLLER
+# 6. MODÜLLER
 # -----------------------------------------------------------------------------
 
 # --- MODÜL 1: DÖNEM & SINAV NOT TAKİBİ ---
@@ -360,14 +356,14 @@ if menu == "📈 Dönem & Sınav Not Takibi":
     c4.metric("Aktif Dönem Kredisi", f"{term_credits} Kredi")
 
     st.divider()
-    courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses", conn)
+    courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses WHERE user_id = ?", conn, params=(user_id,))
     
     if not courses_df.empty:
         for _, c_row in courses_df.iterrows():
             with st.expander(f"📘 **{c_row['code']} - {c_row['name']}** ({c_row['credit']} Kredi / {c_row['ects']} AKTS)", expanded=True):
                 exams_df = pd.read_sql_query(
-                    "SELECT id, title, event_type, weight, score FROM exams WHERE course_id = ?", 
-                    conn, params=(c_row['id'],)
+                    "SELECT id, title, event_type, weight, score FROM exams WHERE course_id = ? AND user_id = ?", 
+                    conn, params=(c_row['id'], user_id)
                 )
                 
                 col_e1, col_e2 = st.columns([2, 1])
@@ -382,13 +378,15 @@ if menu == "📈 Dönem & Sınav Not Takibi":
                             new_s = cb.number_input("Not", min_value=0.0, max_value=100.0, value=float(curr_s), key=f"ex_{ex['id']}")
                             
                             if cc.button("Kaydet", key=f"btn_s_{ex['id']}"):
-                                cursor.execute("UPDATE exams SET score = ? WHERE id = ?", (new_s, ex['id']))
+                                cursor = conn.cursor()
+                                cursor.execute("UPDATE exams SET score = ? WHERE id = ? AND user_id = ?", (new_s, ex['id'], user_id))
                                 conn.commit()
                                 st.success("Kaydedildi!")
                                 st.rerun()
                                 
                             if cd.button("🗑️ Sil", key=f"btn_del_ex_{ex['id']}"):
-                                cursor.execute("DELETE FROM exams WHERE id = ?", (ex['id'],))
+                                cursor = conn.cursor()
+                                cursor.execute("DELETE FROM exams WHERE id = ? AND user_id = ?", (ex['id'], user_id))
                                 conn.commit()
                                 st.warning("Silindi!")
                                 st.rerun()
@@ -414,14 +412,14 @@ if menu == "📈 Dönem & Sınav Not Takibi":
 # --- MODÜL 2: GEREKLİ FİNAL NOTU HESAPLAYICI ---
 elif menu == "🎯 Gerekli Final Notu Hesaplayıcı":
     st.markdown("<h1 class='custom-header'>Hedef Harf Notu İçin Gerekli Final Notu</h1>", unsafe_allow_html=True)
-    st.caption("Girdiğiniz vize/quiz notlarına göre istediğiniz harf notunu (AA, BA, CC vb.) alabilmek için Final sınavından kaç almanız gerektiğini hesaplar.")
+    st.caption("Girdiğiniz vize/quiz notlarına göre istediğiniz harf notunu alabilmek için Final sınavından kaç almanız gerektiğini hesaplar.")
     
-    courses_df = pd.read_sql_query("SELECT id, code, name FROM courses", conn)
+    courses_df = pd.read_sql_query("SELECT id, code, name FROM courses WHERE user_id = ?", conn, params=(user_id,))
     
     if not courses_df.empty:
         for _, c_row in courses_df.iterrows():
             with st.expander(f"🎯 **{c_row['code']} - {c_row['name']}**", expanded=True):
-                exams_df = pd.read_sql_query("SELECT title, weight, score FROM exams WHERE course_id = ?", conn, params=(c_row['id'],))
+                exams_df = pd.read_sql_query("SELECT title, weight, score FROM exams WHERE course_id = ? AND user_id = ?", conn, params=(c_row['id'], user_id))
                 
                 if not exams_df.empty:
                     completed_exams = exams_df[exams_df['score'].notnull()]
@@ -468,7 +466,7 @@ elif menu == "🎯 Dinamik AGNO / GANO Simülatörü":
     st.divider()
     st.subheader("📝 Aktif Dönem Tahmini Harf Notları")
     
-    courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses", conn)
+    courses_df = pd.read_sql_query("SELECT id, code, name, credit, ects FROM courses WHERE user_id = ?", conn, params=(user_id,))
     
     if not courses_df.empty:
         term_credits = 0
@@ -560,11 +558,11 @@ elif menu == "📊 Aylık Başarı Trendi":
     query_monthly = '''
         SELECT strftime('%Y-%m', event_date) AS Ay, AVG(score) AS Ortalama, COUNT(score) AS SinavSayisi
         FROM exams
-        WHERE score IS NOT NULL
+        WHERE user_id = ? AND score IS NOT NULL
         GROUP BY Ay
         ORDER BY Ay ASC
     '''
-    df_trend = pd.read_sql_query(query_monthly, conn)
+    df_trend = pd.read_sql_query(query_monthly, conn, params=(user_id,))
     
     if not df_trend.empty and len(df_trend) >= 1:
         st.subheader("📈 Pro Seviye Aylık Not Gelişim Grafiği")
@@ -599,7 +597,7 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
     st.markdown("<h1 class='custom-header'>Sınav Takvimi & Geri Sayım</h1>", unsafe_allow_html=True)
     
     with st.expander("➕ Yeni Sınav / Ödev Ekle"):
-        courses = pd.read_sql_query("SELECT id, code FROM courses", conn)
+        courses = pd.read_sql_query("SELECT id, code FROM courses WHERE user_id = ?", conn, params=(user_id,))
         if not courses.empty:
             c_dict = dict(zip(courses['code'], courses['id']))
             sel_c = st.selectbox("Ders", list(c_dict.keys()))
@@ -609,16 +607,17 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
             weight = st.slider("Ağırlık Yüzdesi (%)", 1, 100, 30)
             
             if st.button("Takvime Ekle"):
-                cursor.execute("INSERT INTO exams (course_id, title, event_type, event_date, weight) VALUES (?, ?, ?, ?, ?)",
-                               (c_dict[sel_c], title, e_type, e_date, weight))
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO exams (user_id, course_id, title, event_type, event_date, weight) VALUES (?, ?, ?, ?, ?, ?)",
+                               (user_id, c_dict[sel_c], title, e_type, e_date, weight))
                 conn.commit()
                 st.success("Sınav eklendi!")
                 st.rerun()
 
     df_e = pd.read_sql_query('''
         SELECT e.id, c.code AS Ders, e.title AS Etkinlik, e.event_type AS Tür, e.event_date AS Tarih, e.weight AS Agirlik, e.score AS Notu
-        FROM exams e JOIN courses c ON e.course_id = c.id ORDER BY e.event_date ASC
-    ''', conn)
+        FROM exams e JOIN courses c ON e.course_id = c.id WHERE e.user_id = ? ORDER BY e.event_date ASC
+    ''', conn, params=(user_id,))
     
     if not df_e.empty:
         st.subheader("⏳ Yaklaşan Etkinlikler")
@@ -632,14 +631,15 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
                 st.write(f"📌 **{r['Ders']} - {r['Etkinlik']}** ({r['Tür']}) | Tarih: **{r['Tarih']}** | Kalan: **{d_left} Gün** | Not: **{r['Notu'] if r['Notu'] is not None else 'Girilmedi'}**")
             with col2:
                 if st.button("🗑️ Sil", key=f"del_ex_main_{r['id']}"):
-                    cursor.execute("DELETE FROM exams WHERE id = ?", (r['id'],))
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM exams WHERE id = ? AND user_id = ?", (r['id'], user_id))
                     conn.commit()
                     st.rerun()
 
 # --- MODÜL 7: DERS NOTLARI ---
 elif menu == "📝 Ders Notları":
     st.markdown("<h1 class='custom-header'>Ders Notları & Formül Defteri</h1>", unsafe_allow_html=True)
-    courses = pd.read_sql_query("SELECT id, code, name FROM courses", conn)
+    courses = pd.read_sql_query("SELECT id, code, name FROM courses WHERE user_id = ?", conn, params=(user_id,))
     
     if not courses.empty:
         c_dict = dict(zip(courses['code'] + " - " + courses['name'], courses['id']))
@@ -652,18 +652,20 @@ elif menu == "📝 Ders Notları":
             content = st.text_area("İçerik", height=120)
             
             if st.button("Notu Kaydet"):
-                cursor.execute("INSERT INTO notes (course_id, topic, content, tag) VALUES (?, ?, ?, ?)", (sel_id, topic, content, tag))
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO notes (user_id, course_id, topic, content, tag) VALUES (?, ?, ?, ?, ?)", (user_id, sel_id, topic, content, tag))
                 conn.commit()
                 st.success("Not eklendi!")
                 st.rerun()
 
         st.subheader("📌 Geçmiş Notlar")
-        notes_df = pd.read_sql_query("SELECT id, topic, content, tag, created_at FROM notes WHERE course_id = ? ORDER BY created_at DESC", conn, params=(sel_id,))
+        notes_df = pd.read_sql_query("SELECT id, topic, content, tag, created_at FROM notes WHERE course_id = ? AND user_id = ? ORDER BY created_at DESC", conn, params=(sel_id, user_id))
         for _, n in notes_df.iterrows():
             with st.expander(f"📌 [{n['tag']}] {n['topic']} ({n['created_at']})"):
                 st.markdown(n['content'])
                 if st.button("🗑️ Notu Sil", key=f"del_note_{n['id']}"):
-                    cursor.execute("DELETE FROM notes WHERE id = ?", (n['id'],))
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM notes WHERE id = ? AND user_id = ?", (n['id'], user_id))
                     conn.commit()
                     st.rerun()
 
@@ -672,16 +674,16 @@ elif menu == "🖨️ PDF / HTML Rapor Al":
     st.markdown("<h1 class='custom-header'>Akademik Durum Raporu (PDF / Baskı)</h1>", unsafe_allow_html=True)
     st.write("Derslerinizi, sınav notlarınızı ve ders notlarınızı tam Türkçe karakter desteğiyle raporlandırıp çıktı alın.")
     
-    df_c_exp = pd.read_sql_query("SELECT code AS 'Ders Kodu', name AS 'Ders Adı', credit AS 'Yerel Kredi', ects AS 'AKTS' FROM courses", conn)
+    df_c_exp = pd.read_sql_query("SELECT code AS 'Ders Kodu', name AS 'Ders Adı', credit AS 'Yerel Kredi', ects AS 'AKTS' FROM courses WHERE user_id = ?", conn, params=(user_id,))
     df_e_exp = pd.read_sql_query('''
         SELECT c.code AS 'Ders', e.title AS 'Etkinlik', e.event_type AS 'Tür', e.event_date AS 'Tarih', e.weight AS 'Ağırlık (%)', 
                IFNULL(e.score, 'Girilmedi') AS 'Aldığı Not'
-        FROM exams e JOIN courses c ON e.course_id = c.id ORDER BY e.event_date ASC
-    ''', conn)
+        FROM exams e JOIN courses c ON e.course_id = c.id WHERE e.user_id = ? ORDER BY e.event_date ASC
+    ''', conn, params=(user_id,))
     df_n_exp = pd.read_sql_query('''
         SELECT c.code AS 'Ders', n.topic AS 'Konu', n.content AS 'İçerik', n.created_at AS 'Tarih'
-        FROM notes n JOIN courses c ON n.course_id = c.id ORDER BY n.created_at DESC
-    ''', conn)
+        FROM notes n JOIN courses c ON n.course_id = c.id WHERE n.user_id = ? ORDER BY n.created_at DESC
+    ''', conn, params=(user_id,))
     
     html_code = generate_html_report(profile, df_c_exp, df_e_exp, df_n_exp)
     
@@ -694,7 +696,7 @@ elif menu == "🖨️ PDF / HTML Rapor Al":
             mime="text/html"
         )
     with col_d2:
-        st.info("💡 **PDF Olarak Kaydetme İpucu:** İndirdiğiniz dosyaya tıklayıp tarayıcıda açtıktan sonra `Ctrl + P` (Mobilde 'Yazdır') diyerek 'PDF Olarak Kaydet' seçeneğiyle %100 düzgün Türkçe karakterli PDF elde edebilirsiniz!")
+        st.info("💡 **PDF Olarak Kaydetme İpucu:** İndirdiğiniz dosyaya tıklayıp tarayıcıda açtıktan sonra `Ctrl + P` diyerek 'PDF Olarak Kaydet' seçeneğiyle %100 düzgün Türkçe karakterli PDF elde edebilirsiniz!")
 
 # --- MODÜL 9: DERS & MÜFREDAT YÖNETİMİ ---
 elif menu == "⚙️ Ders & Müfredat Yönetimi":
@@ -721,11 +723,12 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
         if st.button("✅ Seçilen Dersleri Sayfama Ekle"):
             if selected_to_add:
                 count = 0
+                cursor = conn.cursor()
                 for c in selected_to_add:
-                    check_db = pd.read_sql_query("SELECT id FROM courses WHERE code = ?", conn, params=(c['code'],))
+                    check_db = pd.read_sql_query("SELECT id FROM courses WHERE code = ? AND user_id = ?", conn, params=(c['code'], user_id))
                     if check_db.empty:
-                        cursor.execute("INSERT INTO courses (code, name, credit, ects, semester) VALUES (?, ?, ?, ?, ?)",
-                                       (c['code'], c['name'], c['credit'], c['ects'], c['sem']))
+                        cursor.execute("INSERT INTO courses (user_id, code, name, credit, ects, semester) VALUES (?, ?, ?, ?, ?, ?)",
+                                       (user_id, c['code'], c['name'], c['credit'], c['ects'], c['sem']))
                         count += 1
                 conn.commit()
                 st.success(f"{count} yeni ders eklendi!")
@@ -742,22 +745,24 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
         
         if st.button("Seçmeli Dersi Kaydet"):
             if m_code and m_name:
-                cursor.execute("INSERT INTO courses (code, name, credit, ects, semester) VALUES (?, ?, ?, ?, 5)",
-                               (m_code, m_name, m_credit, m_ects))
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO courses (user_id, code, name, credit, ects, semester) VALUES (?, ?, ?, ?, ?, 5)",
+                               (user_id, m_code, m_name, m_credit, m_ects))
                 conn.commit()
                 st.success(f"{m_code} dersi eklendi!")
                 st.rerun()
 
     with tab3:
         st.subheader("Kayıtlı Dersleri Sil & Yönet")
-        df_c = pd.read_sql_query("SELECT id, code AS 'Kodu', name AS 'Adı', credit AS 'Kredi', ects AS 'AKTS' FROM courses", conn)
+        df_c = pd.read_sql_query("SELECT id, code AS 'Kodu', name AS 'Adı', credit AS 'Kredi', ects AS 'AKTS' FROM courses WHERE user_id = ?", conn, params=(user_id,))
         
         if not df_c.empty:
             for _, r in df_c.iterrows():
                 col_a, col_b = st.columns([4, 1])
                 col_a.write(f"📘 **{r['Kodu']}** - {r['Adı']} ({r['Kredi']} Kredi / {r['AKTS']} AKTS)")
                 if col_b.button("🗑️ Dersi Sil", key=f"del_course_{r['id']}"):
-                    cursor.execute("DELETE FROM courses WHERE id = ?", (r['id'],))
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM courses WHERE id = ? AND user_id = ?", (r['id'], user_id))
                     conn.commit()
                     st.warning(f"{r['Kodu']} silindi!")
                     st.rerun()
