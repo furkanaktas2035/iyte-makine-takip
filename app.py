@@ -4,7 +4,6 @@ from datetime import datetime, date
 import database as db
 import plotly.graph_objects as go
 import time
-import uuid
 
 # -----------------------------------------------------------------------------
 # 1. SAYFA KONFİGÜRASYONU & MOBİL UYUMLU CSS
@@ -13,7 +12,7 @@ st.set_page_config(
     page_title="İYTE Makine | Akademik Yönetim Platformu",
     page_icon="⚙️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 CUSTOM_CSS = """
@@ -73,15 +72,34 @@ CUSTOM_CSS = """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. VERİTABANI İNİTİALİZASYONU VE OTURUM İZOLASYONU (USER_ID)
+# 2. VERİTABANI VE KALICI KULLANICI GİRİŞ SİSTEMİ
 # -----------------------------------------------------------------------------
 db.init_db()
 conn = db.get_connection()
 
-if 'user_id' not in st.session_state:
-    st.session_state['user_id'] = str(uuid.uuid4())
+# Kullanıcı Kimliği Giriş Kontrolü (Görünmez URL Parametresi veya Giriş Kutusu)
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = ""
 
-user_id = st.session_state['user_id']
+# Eğer Giriş Yapılmadıysa Giriş Ekranını Göster
+if not st.session_state["user_id"]:
+    st.markdown("<h1 class='custom-header' style='text-align:center;'>🎓 İYTE Akademik Yönetim Platformu</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#a5b4fc;'>Verilerinizin kaybolmaması ve başkalarıyla karışmaması için lütfen adınızı/rumuzunuzu veya öğrenci numaranızı girin.</p>", unsafe_allow_html=True)
+    
+    col_g1, col_g2, col_g3 = st.columns([1, 2, 1])
+    with col_g2:
+        input_user = st.text_input("Kullanıcı Adı / Öğrenci No / Rumuz", placeholder="Örn: furkan_3302")
+        if st.button("🚀 Panetime Giriş Yap", use_container_width=True):
+            if input_user.strip():
+                st.session_state["user_id"] = input_user.strip().lower()
+                st.toast(f"Giriş başarılı! Hoş geldin {input_user}", icon="🎉")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.warning("Lütfen geçerli bir kullanıcı adı girin.")
+    st.stop()
+
+user_id = st.session_state["user_id"]
 
 # Kullanıcı Profilini Getir
 prof_row = db.get_or_create_profile(user_id)
@@ -247,11 +265,15 @@ with st.sidebar:
     st.markdown(f"""
     <div class="profile-card">
         <h3 style="margin:0; color:#f8fafc; font-size:18px;">🎓 {profile['name']}</h3>
-        <p style="margin:4px 0 0 0; color:#a5b4fc; font-size:12px;">İYTE - {profile['department']}</p>
+        <p style="margin:4px 0 0 0; color:#a5b4fc; font-size:12px;">Oturum: <b>{user_id}</b></p>
         <span style="background:#4f46e5; color:white; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:bold;">{profile['grade']}</span>
     </div>
     """, unsafe_allow_html=True)
     
+    if st.button("🚪 Oturumu Kapat / Kullanıcı Değiştir"):
+        st.session_state["user_id"] = ""
+        st.rerun()
+
     with st.expander("👤 Kullanıcı Profil Bilgilerini Değiştir"):
         u_name = st.text_input("Ad Soyad / Kullanıcı Adı", value=profile['name'])
         u_dept = st.text_input("Bölüm", value=profile['department'])
@@ -262,7 +284,7 @@ with st.sidebar:
         if st.button("💾 Bilgilerimi Kalıcı Kaydet"):
             db.update_profile(user_id, u_name, u_dept, u_grade, u_gpa, u_credits)
             st.toast("✅ Profil bilgileriniz başarıyla kaydedildi!", icon="🎉")
-            time.sleep(0.8)
+            time.sleep(0.5)
             st.rerun()
 
     st.divider()
@@ -297,7 +319,7 @@ if not df_alert.empty and menu not in ["⏱️ Pomodoro Çalışma Sayacı", "�
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 5. DÖNEM & GENEL NOT ORTALAMASI BİRLEŞİK HESAPLAMA METODU (KART MANTIĞIYLA EŞİTLENDİ)
+# 5. DÖNEM & GENEL NOT ORTALAMASI HESAPLAMA METODU (KART DERS HESABI İLE BİREBİR EŞİTLENDİ)
 # -----------------------------------------------------------------------------
 def calculate_combined_gpa():
     courses_df = pd.read_sql_query("SELECT id, credit, ects FROM courses WHERE user_id = ?", conn, params=(user_id,))
@@ -319,7 +341,8 @@ def calculate_combined_gpa():
         )
         
         if not exams_df.empty:
-            completed = exams_df[exams_df['score'].notnull()]
+            # Sadece notu girilmiş (score IS NOT NULL ve score > 0) sınavları filtreliyoruz
+            completed = exams_df[(exams_df['score'].notnull()) & (exams_df['score'] > 0)]
             if not completed.empty:
                 tot_w = completed['weight'].sum()
                 if tot_w > 0:
@@ -393,7 +416,7 @@ if menu == "📈 Dönem & Sınav Not Takibi":
                                 cursor.execute("UPDATE exams SET score = ? WHERE id = ? AND user_id = ?", (new_s, ex['id'], user_id))
                                 conn.commit()
                                 st.toast(f"✅ {ex['title']} notu kaydedildi!", icon="💾")
-                                time.sleep(0.5)
+                                time.sleep(0.4)
                                 st.rerun()
                                 
                             if cd.button("🗑️ Sil", key=f"btn_del_ex_{ex['id']}"):
@@ -401,14 +424,14 @@ if menu == "📈 Dönem & Sınav Not Takibi":
                                 cursor.execute("DELETE FROM exams WHERE id = ? AND user_id = ?", (ex['id'], user_id))
                                 conn.commit()
                                 st.toast("🗑️ Sınav silindi!", icon="⚠️")
-                                time.sleep(0.5)
+                                time.sleep(0.4)
                                 st.rerun()
                     else:
                         st.info("Bu ders için henüz sınav eklenmedi.")
                         
                 with col_e2:
                     if not exams_df.empty:
-                        completed = exams_df[exams_df['score'].notnull()]
+                        completed = exams_df[(exams_df['score'].notnull()) & (exams_df['score'] > 0)]
                         if not completed.empty:
                             tot_w = completed['weight'].sum()
                             w_sum = (completed['score'] * completed['weight']).sum()
@@ -435,7 +458,7 @@ elif menu == "🎯 Gerekli Final Notu Hesaplayıcı":
                 exams_df = pd.read_sql_query("SELECT title, weight, score FROM exams WHERE course_id = ? AND user_id = ?", conn, params=(c_row['id'], user_id))
                 
                 if not exams_df.empty:
-                    completed_exams = exams_df[exams_df['score'].notnull()]
+                    completed_exams = exams_df[(exams_df['score'].notnull()) & (exams_df['score'] > 0)]
                     if not completed_exams.empty:
                         tot_w = completed_exams['weight'].sum()
                         current_weighted_sum = (completed_exams['score'] * completed_exams['weight']).sum()
@@ -571,7 +594,7 @@ elif menu == "📊 Aylık Başarı Trendi":
     query_monthly = '''
         SELECT strftime('%Y-%m', event_date) AS Ay, AVG(score) AS Ortalama, COUNT(score) AS SinavSayisi
         FROM exams
-        WHERE user_id = ? AND score IS NOT NULL
+        WHERE user_id = ? AND score IS NOT NULL AND score > 0
         GROUP BY Ay
         ORDER BY Ay ASC
     '''
@@ -625,7 +648,7 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
                                (user_id, c_dict[sel_c], title, e_type, e_date, weight))
                 conn.commit()
                 st.toast(f"✅ {title} sınavı takvime eklendi!", icon="📅")
-                time.sleep(0.5)
+                time.sleep(0.4)
                 st.rerun()
 
     df_e = pd.read_sql_query('''
@@ -649,7 +672,7 @@ elif menu == "📅 Sınav Takvimi & Geri Sayım":
                     cursor.execute("DELETE FROM exams WHERE id = ? AND user_id = ?", (r['id'], user_id))
                     conn.commit()
                     st.toast("🗑️ Sınav silindi!", icon="🗑️")
-                    time.sleep(0.5)
+                    time.sleep(0.4)
                     st.rerun()
 
 # --- MODÜL 7: DERS NOTLARI ---
@@ -672,7 +695,7 @@ elif menu == "📝 Ders Notları":
                 cursor.execute("INSERT INTO notes (user_id, course_id, topic, content, tag) VALUES (?, ?, ?, ?, ?)", (user_id, sel_id, topic, content, tag))
                 conn.commit()
                 st.toast("📝 Ders notu başarıyla eklendi!", icon="✅")
-                time.sleep(0.5)
+                time.sleep(0.4)
                 st.rerun()
 
         st.subheader("📌 Geçmiş Notlar")
@@ -685,7 +708,7 @@ elif menu == "📝 Ders Notları":
                     cursor.execute("DELETE FROM notes WHERE id = ? AND user_id = ?", (n['id'], user_id))
                     conn.commit()
                     st.toast("🗑️ Ders notu silindi!", icon="🗑️")
-                    time.sleep(0.5)
+                    time.sleep(0.4)
                     st.rerun()
 
 # --- MODÜL 8: PDF / HTML RAPOR AL ---
@@ -751,7 +774,7 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
                         count += 1
                 conn.commit()
                 st.toast(f"🎉 {count} yeni ders sayfanıza eklendi!", icon="✅")
-                time.sleep(0.8)
+                time.sleep(0.5)
                 st.rerun()
             else:
                 st.warning("Lütfen eklemek istediğiniz dersleri işaretleyin.")
@@ -770,7 +793,7 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
                                (user_id, m_code, m_name, m_credit, m_ects))
                 conn.commit()
                 st.toast(f"✅ {m_code} seçmeli dersi eklendi!", icon="🎉")
-                time.sleep(0.8)
+                time.sleep(0.5)
                 st.rerun()
 
     with tab3:
@@ -786,7 +809,7 @@ elif menu == "⚙️ Ders & Müfredat Yönetimi":
                     cursor.execute("DELETE FROM courses WHERE id = ? AND user_id = ?", (r['id'], user_id))
                     conn.commit()
                     st.toast(f"🗑️ {r['Kodu']} dersi başarıyla silindi!", icon="🗑️")
-                    time.sleep(0.8)
+                    time.sleep(0.5)
                     st.rerun()
         else:
             st.info("Kayıtlı ders bulunmuyor.")
