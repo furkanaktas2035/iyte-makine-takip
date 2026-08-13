@@ -13,8 +13,16 @@ def init_db():
     cursor.execute("PRAGMA foreign_keys = ON")
     
     # -------------------------------------------------------------
-    # 1. PROFIL TABLOSU (Kullanıcı Bazlı Yalıtım)
+    # 1. PROFIL TABLOSU SÜTUN KONTROLÜ & MIGRATION (HATA ÇÖZÜCÜ)
     # -------------------------------------------------------------
+    cursor.execute("PRAGMA table_info(profile)")
+    profile_cols = [c[1] for c in cursor.fetchall()]
+    
+    # Eğer profile tablosu daha önceden var ama user_id sütunu yoksa, tabloyu yeniden yapılandır
+    if profile_cols and 'user_id' not in profile_cols:
+        cursor.execute("DROP TABLE profile")
+        conn.commit()
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS profile (
             user_id TEXT PRIMARY KEY,
@@ -82,7 +90,7 @@ def init_db():
     for table in tables_to_check:
         cursor.execute(f"PRAGMA table_info({table})")
         cols = [c[1] for c in cursor.fetchall()]
-        if 'user_id' not in cols:
+        if cols and 'user_id' not in cols:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT DEFAULT 'default_user'")
             
     conn.commit()
@@ -130,5 +138,5 @@ def update_profile(user_id, name, department, grade, current_gpa, current_credit
 
 if __name__ == "__main__":
     init_db()
-    print("V7 Veri tabanı başarıyla güncellendi ve tüm fonksiyonlar yüklendi!")
+    print("V7 Veri tabanı başarıyla güncellendi!")
     
